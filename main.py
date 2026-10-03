@@ -56,12 +56,16 @@ st.markdown('<div class="main-title">📈 محلل الصفقات ومستشار
 st.markdown('<div class="sub-title">تحليل لحظي بالدولار مع شات بوت ذكي للتوصيات وإدارة رأس المال</div>', unsafe_allow_html=True)
 
 # ---------------------------------------------------------
-# 2. القائمة الجانبية وإدخال البيانات
+# 2. جلب المفتاح ورأس المال
 # ---------------------------------------------------------
+# محاولة جلب المفتاح من Secrets أو القائمة الجانبية
+api_key = st.secrets.get("GEMINI_API_KEY", "")
+
 with st.sidebar:
-    st.header("⚙️ إعدادات الذكاء الاصطناعي")
-    api_key = st.text_input("أدخل مفتاح Gemini API Key:", type="password", help="احصل عليه مجاناً من Google AI Studio")
-    st.divider()
+    st.header("⚙️ إعدادات التداول")
+    if not api_key:
+        api_key = st.text_input("أدخل مفتاح Gemini API Key (اختياري):", type="password")
+    
     capital_usd = st.number_input(
         "💰 رأس المال للتداول ($ USD):", 
         min_value=1.0, 
@@ -198,7 +202,7 @@ def get_market_data(symbol_type, capital_usd):
         return None, None, str(e)
 
 # ---------------------------------------------------------
-# 4. عرض الأسعار والرسم البياني
+# 4. عرض الواجهة والرسوم البيانية
 # ---------------------------------------------------------
 tab_gold, tab_silver = st.tabs(["🥇 الذهب (XAUUSD)", "🥈 الفضة (XAGUSD)"])
 
@@ -234,7 +238,7 @@ def render_market_view(symbol_type, name):
     if 'SMA_20' in df.columns: fig.add_trace(go.Scatter(x=df.index, y=df['SMA_20'], line=dict(color='orange', width=1), name="SMA 20"))
     if 'EMA_50' in df.columns: fig.add_trace(go.Scatter(x=df.index, y=df['EMA_50'], line=dict(color='#00d2ff', width=1), name="EMA 50"))
 
-    fig.update_layout(margin=dict(l=0, r=0, t=10, b=0), height=300, xaxis_rangeslider_visible=False, template="plotly_dark")
+    fig.update_layout(margin=dict(l=0, r=0, t=10, b=0), height=300, xaxis_rangeslider_visible=False, template="plotly_dark", showlegend=False)
     st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
 
 with tab_gold:
@@ -244,20 +248,19 @@ with tab_silver:
     render_market_view("silver", "الفضة")
 
 # ---------------------------------------------------------
-# 5. مستشار الذكاء الاصطناعي التفاعلي (AI Chatbot)
+# 5. الشات بوت والمحادثة
 # ---------------------------------------------------------
 st.divider()
-st.subheader("🤖 محادثة مستشار الذكاء الاصطناعي للتداول")
+st.subheader("💬 محادثة مستشار الذكاء الاصطناعي")
 
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 
-# عرض المحادثات السابقة
 for message in st.session_state.chat_history:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-user_prompt = st.chat_input("أسأل الذكاء الاصطناعي: هل أنصح بالبيع أم الشراء الآن وكم أستثمر؟")
+user_prompt = st.chat_input("أسأل الذكاء الاصطناعي: اشتري ولا أبيع؟")
 
 if user_prompt:
     st.session_state.chat_history.append({"role": "user", "content": user_prompt})
@@ -265,23 +268,22 @@ if user_prompt:
         st.markdown(user_prompt)
 
     if not api_key:
-        bot_response = "⚠️ يُرجى أدخال مفتاح Gemini API Key في الشريط الجانبي لتفعيل الذكاء الاصطناعي."
+        bot_response = "⚠️ يُرجى إضافة المفتاح GEMINI_API_KEY في Streamlit Secrets أو في القائمة الجانبية لتفعيل الرد التلقائي."
         with st.chat_message("assistant"):
             st.markdown(bot_response)
         st.session_state.chat_history.append({"role": "assistant", "content": bot_response})
     else:
         with st.chat_message("assistant"):
-            with st.spinner("جاري تحليل بيانات السوق وكتابة التوصية..."):
+            with st.spinner("جاري تحليل الأسواق وإعداد التوصية..."):
                 try:
-                    # بناء نص السياق الفني للذكاء الاصطناعي
                     context_data = f"""
-                    أنت مستشار تداول فني خبير في صفقات السكالبينج (Scalping).
-                    معلومات رأس مال المستخدم الحالي: {capital_usd}$ USD.
+                    أنت خبير تداول متناول ومستشار مالي لحظي للصفقات السريعة (Scalping).
+                    رأس مال المستخدم المتاح: {capital_usd}$ USD.
                     
-                    البيانات اللحظية الحالية للأسواق:
+                    بيانات السوق الحالية اللحظية:
                     {active_analysis}
                     
-                    أجب عن سؤال المستخدم بدقة ومباشرة. انصحه صراحةً بالبيع أو الشراء أو الانتظار بناءً على بيانات السعر والمؤشرات أعلاه، وحدد له المبلغ الدقيق بالدولار الذي يفضل أن يدخل به وقيمة الهدف ووقف الخسارة.
+                    أجب بوضوح مباشر على سؤال المستخدم: هل ينصح بالبيع أم الشراء أم الانتظار الآن؟ وحدد له المبلغ الدقيق للدخول بالدولار وهدف الربح ووقف الخسارة.
                     """
                     
                     model = genai.GenerativeModel("gemini-1.5-flash")
@@ -290,4 +292,4 @@ if user_prompt:
                     st.markdown(bot_response)
                     st.session_state.chat_history.append({"role": "assistant", "content": bot_response})
                 except Exception as e:
-                    st.error(f"حدث خطأ أثناء الاتصال بالذكاء الاصطناعي: {e}")
+                    st.error(f"حدث خطأ أثناء الاتصال بالمساعد: {e}")
