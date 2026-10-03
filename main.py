@@ -54,42 +54,26 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.markdown('<div class="main-title">📈 محلل الصفقات السريعة</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-title">توصيات لحظية وحاسبة تحويل رأس المال بالدينار والدولار</div>', unsafe_allow_html=True)
+st.markdown('<div class="main-title">📈 محلل الصفقات السريعة (Scalping)</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-title">توصيات لحظية وإدارة مخاطر بالدولار الأمريكي ($ USD)</div>', unsafe_allow_html=True)
 
 # ---------------------------------------------------------
-# 2. إدخال رأس المال وحسابه التلقائي بالدولار
+# 2. إدخال رأس المال بالدولار فقط
 # ---------------------------------------------------------
-col_cap1, col_cap2 = st.columns(2)
-
-with col_cap1:
-    capital_iqd = st.number_input(
-        "💰 كم تملك رأس مال للتداول؟ (بالدينار العراقي):", 
-        min_value=1.0, 
-        value=1000000.0, 
-        step=50000.0,
-        format="%.0f"
-    )
-
-with col_cap2:
-    usd_iqd_rate = st.number_input(
-        "💱 سعر صرف $1 بالدينار العراقي:", 
-        min_value=1.0, 
-        value=1500.0, 
-        step=10.0
-    )
-
-# حساب المعادل بالدولار تلقائياً
-capital_usd = capital_iqd / usd_iqd_rate if usd_iqd_rate > 0 else 0.0
-
-# عرض القيمة المعادلة بالدولار مباشرة تحت الخانات
-st.info(f"💵 **رأس مالك المعادل بالدولار:** `${capital_usd:,.2f} USD` (بناءً على سعر الصرف {usd_iqd_rate:,.0f} د.ع)")
+capital_usd = st.number_input(
+    "💰 كم تملك رأس مال للتداول؟ ($ USD):", 
+    min_value=1.0, 
+    value=1000.0, 
+    step=50.0,
+    format="%.2f"
+)
 
 # ---------------------------------------------------------
 # 3. دالة جلب البيانات والتحليل اللحظي
 # ---------------------------------------------------------
 @st.cache_data(ttl=15)
-def get_market_data(symbol_type, capital_in_iqd, exchange_rate):
+def get_market_data(symbol_type, capital_usd):
+    # استخدام أسعار الذهب والفضة الفورية (Spot USD)
     symbol = "XAUUSD=X" if symbol_type == "gold" else "XAGUSD=X"
     fallback_symbol = "GC=F" if symbol_type == "gold" else "SI=F"
     
@@ -133,41 +117,42 @@ def get_market_data(symbol_type, capital_in_iqd, exchange_rate):
         latest = df.iloc[-1]
         prev = df.iloc[-2] if len(df) > 1 else latest
 
-        current_price_usd = float(latest['Close'])
-        price_change_usd = float(current_price_usd - prev['Close'])
+        current_price = float(latest['Close'])
+        price_change = float(current_price - prev['Close'])
 
-        # حساب التوصية والزخم اللحظي
+        # حساب تقييم الحركة (Score)
         score = 0
-        if current_price_usd > latest.get('SMA_20', current_price_usd): score += 1
+        if current_price > latest.get('SMA_20', current_price): score += 1
         else: score -= 1
 
         rsi_val = latest.get('RSI', 50)
-        if rsi_val < 35: score += 2
-        elif rsi_val > 65: score -= 2
+        if rsi_val < 35: score += 2      # تشبع بيعي - إشارة صعود
+        elif rsi_val > 65: score -= 2    # تشبع شرائي - إشارة هبوط
 
         stoch_k = latest.get('Stoch_K', 50)
         if stoch_k < 20: score += 2
         elif stoch_k > 80: score -= 2
 
+        # تحديد حجم الدخول وإدارة المخاطر بالدولار
         if score >= 3:
             rec = "شراء سريع (Scalp Buy 🟢)"
             color = "green"
-            desc = "صعود لحظي متوقع! فرصة دخول سريعة."
-            invest_ratio = 0.08
-            tp_perc = 0.005
-            sl_perc = 0.003
+            desc = "صعود لحظي متوقع! إشارات زخم إيجابية."
+            invest_ratio = 0.08  # استثمار 8% من رأس المال
+            tp_perc = 0.005      # هدف ربح 0.5%
+            sl_perc = 0.003      # وقف خسارة 0.3%
         elif score <= -3:
             rec = "بيع سريع (Scalp Sell 🔴)"
             color = "red"
-            desc = "هبوط لحظي متوقع! ضغط بيعي قوي."
-            invest_ratio = 0.08
+            desc = "هبوط لحظي متوقع! ضغط بيعي واستكمال هبوط."
+            invest_ratio = 0.08  # 8%
             tp_perc = 0.005
             sl_perc = 0.003
         elif score in [1, 2]:
             rec = "شراء خفيف (Weak Buy 🟡)"
             color = "orange"
             desc = "إشارة صعود بسيطة، ينصح بالدخول بمبلغ صغير."
-            invest_ratio = 0.03
+            invest_ratio = 0.03  # 3% فقط
             tp_perc = 0.003
             sl_perc = 0.002
         elif score in [-1, -2]:
@@ -180,42 +165,34 @@ def get_market_data(symbol_type, capital_in_iqd, exchange_rate):
         else:
             rec = "انتظار (Hold ⚪)"
             color = "orange"
-            desc = "السوق غير واضح، لا تجازف برأس مالك الآن."
+            desc = "السوق غير واضح، تجنب المخاطرة الآن."
             invest_ratio = 0.0
             tp_perc, sl_perc = 0.0, 0.0
 
-        # الحسابات بالدينار والدولار
-        invest_amount_iqd = capital_in_iqd * invest_ratio
-        invest_amount_usd = invest_amount_iqd / exchange_rate if exchange_rate > 0 else 0
-        
-        expected_profit_iqd = invest_amount_iqd * tp_perc
-        expected_profit_usd = expected_profit_iqd / exchange_rate if exchange_rate > 0 else 0
-        
-        expected_loss_iqd = invest_amount_iqd * sl_perc
-        expected_loss_usd = expected_loss_iqd / exchange_rate if exchange_rate > 0 else 0
+        # الحسابات الماليّة بالدولار
+        invest_amount = capital_usd * invest_ratio
+        expected_profit = invest_amount * tp_perc
+        expected_loss = invest_amount * sl_perc
 
         if "شراء" in rec:
-            tp_usd = current_price_usd * (1 + tp_perc)
-            sl_usd = current_price_usd * (1 - sl_perc)
+            tp_price = current_price * (1 + tp_perc)
+            sl_price = current_price * (1 - sl_perc)
         else:
-            tp_usd = current_price_usd * (1 - tp_perc)
-            sl_usd = current_price_usd * (1 + sl_perc)
+            tp_price = current_price * (1 - tp_perc)
+            sl_price = current_price * (1 + sl_perc)
 
         analysis = {
-            'price_usd': current_price_usd,
-            'change_usd': price_change_usd,
+            'price': current_price,
+            'change': price_change,
             'recommendation': rec,
             'color': color,
             'desc': desc,
-            'invest_amount_iqd': invest_amount_iqd,
-            'invest_amount_usd': invest_amount_usd,
+            'invest_amount': invest_amount,
             'invest_percent': invest_ratio * 100,
-            'expected_profit_iqd': expected_profit_iqd,
-            'expected_profit_usd': expected_profit_usd,
-            'expected_loss_iqd': expected_loss_iqd,
-            'expected_loss_usd': expected_loss_usd,
-            'tp_usd': tp_usd,
-            'sl_usd': sl_usd
+            'expected_profit': expected_profit,
+            'expected_loss': expected_loss,
+            'tp_price': tp_price,
+            'sl_price': sl_price
         }
 
         return df, analysis, None
@@ -228,7 +205,7 @@ def get_market_data(symbol_type, capital_in_iqd, exchange_rate):
 tab_gold, tab_silver = st.tabs(["🥇 الذهب (XAUUSD)", "🥈 الفضة (XAGUSD)"])
 
 def render_market_view(symbol_type, name):
-    df, analysis, error = get_market_data(symbol_type, capital_iqd, usd_iqd_rate)
+    df, analysis, error = get_market_data(symbol_type, capital_usd)
     
     if error or df is None:
         st.error(f"تعذر جلب بيانات {name}: {error}")
@@ -238,22 +215,22 @@ def render_market_view(symbol_type, name):
     with col1:
         st.metric(
             label=f"سعر {name} (أونصة)", 
-            value=f"${analysis['price_usd']:.2f}", 
-            delta=f"{analysis['change_usd']:+.2f} $"
+            value=f"${analysis['price']:.2f}", 
+            delta=f"{analysis['change']:+.2f} $"
         )
     with col2:
         st.metric(
             label="مبلغ الصفقة المقترح", 
-            value=f"{analysis['invest_amount_iqd']:,.0f} د.ع", 
-            delta=f"${analysis['invest_amount_usd']:,.2f} ({analysis['invest_percent']:.1f}%)"
+            value=f"${analysis['invest_amount']:,.2f}", 
+            delta=f"{analysis['invest_percent']:.1f}% من رأس المال"
         )
 
-    # تفاصيل الصفقة بالدينار والدولار
+    # تفاصيل الصفقة والأهداف بالدولار
     rec_box = f"### {analysis['recommendation']}\n\n" \
               f"📌 **التحليل اللحظي:** {analysis['desc']}\n\n" \
-              f"💵 **المبلغ الموصى بالدخول به:** `{analysis['invest_amount_iqd']:,.0f} د.ع` (أي `${analysis['invest_amount_usd']:,.2f}`)\n\n" \
-              f"🎯 **الربح المتوقع:** `+{analysis['expected_profit_iqd']:,.0f} د.ع` (`+${analysis['expected_profit_usd']:.2f}`) عند سعر ${analysis['tp_usd']:.2f}\n\n" \
-              f"🛑 **أقصى خسارة مسموح بها:** `-{analysis['expected_loss_iqd']:,.0f} د.ع` (`-${analysis['expected_loss_usd']:.2f}`) عند سعر ${analysis['sl_usd']:.2f}"
+              f"💵 **المبلغ الموصى بالدخول به:** `${analysis['invest_amount']:,.2f}`\n\n" \
+              f"🎯 **الربح المتوقع بالصفقة:** `+${analysis['expected_profit']:.2f}` (عند سعر ${analysis['tp_price']:.2f})\n\n" \
+              f"🛑 **أقصى خسارة مسموح بها:** `-${analysis['expected_loss']:.2f}` (عند سعر ${analysis['sl_price']:.2f})"
 
     if analysis['color'] == "green":
         st.success(rec_box)
@@ -287,6 +264,6 @@ with tab_gold:
 with tab_silver:
     render_market_view("silver", "الفضة")
 
-if st.button("🔄 تحديث التحليل ورأس المال"):
+if st.button("🔄 تحديث التحليل"):
     st.cache_data.clear()
     st.rerun()
