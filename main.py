@@ -6,7 +6,9 @@ from ta.trend import SMAIndicator, EMAIndicator, MACD
 from ta.momentum import RSIIndicator
 from streamlit_autorefresh import st_autorefresh
 
-# 1. إعدادات الصفحة والتصميم
+# ---------------------------------------------------------
+# 1. إعدادات الصفحة
+# ---------------------------------------------------------
 st.set_page_config(
     page_title="محلل الأسواق الذكي",
     page_icon="📈",
@@ -17,7 +19,7 @@ st.set_page_config(
 # تحديث تلقائي كل 30 ثانية
 st_autorefresh(interval=30000, key="datarefresh")
 
-# تنسيق الخطوط والأحجام للشاشات الصغيرة
+# تنسيق الموبايل
 st.markdown("""
     <style>
     h1 { font-size: 1.8rem !important; text-align: center; }
@@ -31,22 +33,37 @@ st.markdown("""
 st.title("📈 محلل الأسواق الذكي")
 st.caption("تحليل فني وتوصيات ذكية لحظية للذهب والفضة")
 
-# 2. دالة جلب البيانات والتحليل
+# ---------------------------------------------------------
+# 2. دالة جلب البيانات الذكية (تتحمل عطلة الأسواق)
+# ---------------------------------------------------------
 @st.cache_data(ttl=15)
 def get_market_data(ticker_symbol):
     try:
+        # المحاولة الأولى: جلب بيانات لحظية (5 دقائق)
         df = yf.download(ticker_symbol, period="5d", interval="5m", progress=False)
+        
+        # إذا كانت فارغة (مثلاً بسبب عطلة نهاية الأسبوع)، نجلب البيانات اليومية
+        if df.empty or len(df) < 10:
+            df = yf.download(ticker_symbol, period="1mo", interval="1d", progress=False)
+            
         if df.empty:
-            return None, None, "لا توجد بيانات متاحة حالياً"
+            return None, None, "لم يتم العثور على بيانات من المصدر."
 
+        # تنظيف شكل الأعمدة
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
 
+        # التأكد من عدم وجود قيم مفقودة في الإغلاق
+        df = df.dropna(subset=['Close'])
+
         close = df['Close']
         
-        # المؤشرات الفنية
-        df['SMA_20'] = SMAIndicator(close=close, window=20).sma_indicator()
-        df['EMA_50'] = EMAIndicator(close=close, window=50).ema_indicator()
+        # حساب المؤشرات الفنية بمرونة
+        window_sma = 20 if len(df) >= 20 else len(df) // 2
+        window_ema = 50 if len(df) >= 50 else len(df) - 1
+
+        df['SMA_20'] = SMAIndicator(close=close, window=window_sma).sma_indicator()
+        df['EMA_50'] = EMAIndicator(close=close, window=window_ema).ema_indicator()
         df['RSI'] = RSIIndicator(close=close, window=14).rsi_indicator()
         
         macd_obj = MACD(close=close)
@@ -54,48 +71,47 @@ def get_market_data(ticker_symbol):
         df['MACD_Signal'] = macd_obj.macd_signal()
 
         latest = df.iloc[-1]
-        prev = df.iloc[-2]
+        prev = df.iloc[-2] if len(df) > 1 else latest
         
-        current_price = latest['Close']
-        price_change = current_price - prev['Close']
+        current_price = float(latest['Close'])
+        price_change = float(current_price - prev['Close'])
 
-        # حساب التوصية
+        # الخوارزمية
         score = 0
-        if current_price > latest['SMA_20'] and current_price > latest['EMA_50']:
+        if current_price > latest.get('SMA_20', current_price) and current_price > latest.get('EMA_50', current_price):
             score += 2
-        elif current_price < latest['SMA_20'] and current_price < latest['EMA_50']:
+        elif current_price < latest.get('SMA_20', current_price) and current_price < latest.get('EMA_50', current_price):
             score -= 2
             
-        if latest['RSI'] < 30:
+        rsi_val = latest.get('RSI', 50)
+        if rsi_val < 30:
             score += 3
-        elif latest['RSI'] > 70:
+        elif rsi_val > 70:
             score -= 3
-            
-        if latest['MACD'] > latest['MACD_Signal'] and prev['MACD'] <= prev['MACD_Signal']:
-            score += 2
-        elif latest['MACD'] < latest['MACD_Signal'] and prev['MACD'] >= prev['MACD_Signal']:
-            score -= 2
 
         if score >= 3:
-            rec, color, desc = "شراء (Buy)", "green", "الاتجاه صاعد مع إشارات إيجابية قوية."
+            rec, color, desc = "شراء (Buy)", "green", "الاتجاه صاعد مع إشارات إيجابية."
         elif score <= -3:
-            rec, color, desc = "بيع (Sell)", "red", "الاتجاه هابط مع وجود ضغط بيعي قوي."
+            rec, color, desc = "بيع (Sell)", "red", "الاتجاه هابط مع ضغط بيعي."
         else:
-            rec, color, desc = "محايد (Hold)", "orange", "السوق في حالة تذبذب، يفضل الانتظار."
+            rec, color, desc = "محايد (Hold)", "orange", "السوق في حالة تذبذب أو مغلق حالياً."
 
         analysis = {
             'price': current_price,
             'change': price_change,
-            'rsi': latest['RSI'],
+            'rsi': rsi_val,
             'recommendation': rec,
             'color': color,
             'desc': desc
         }
+
         return df, analysis, None
     except Exception as e:
         return None, None, str(e)
 
-# 3. عرض علامات التبويب (الذهب والفضة الفورية)
+# ---------------------------------------------------------
+# 3. العرض
+# ---------------------------------------------------------
 tab_gold, tab_silver = st.tabs(["🥇 الذهب (XAU)", "🥈 الفضة (XAG)"])
 
 GOLD_SYMBOL = "XAUUSD=X"
@@ -105,7 +121,7 @@ def render_market_view(symbol, name):
     df, analysis, error = get_market_data(symbol)
     
     if error or df is None:
-        st.error(f"تعذر جلب بيانات {name}. يرجى محاولة التحديث.")
+        st.error(f"تعذر جلب بيانات {name}: {error}")
         return
 
     st.metric(label=f"سعر {name} الحالي (Spot)", value=f"${analysis['price']:.2f}", delta=f"{analysis['change']:+.2f}")
@@ -123,12 +139,14 @@ def render_market_view(symbol, name):
     fig.add_trace(go.Candlestick(
         x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name="السعر"
     ))
-    fig.add_trace(go.Scatter(x=df.index, y=df['SMA_20'], line=dict(color='orange', width=1), name="SMA 20"))
-    fig.add_trace(go.Scatter(x=df.index, y=df['EMA_50'], line=dict(color='lightblue', width=1), name="EMA 50"))
+    if 'SMA_20' in df.columns:
+        fig.add_trace(go.Scatter(x=df.index, y=df['SMA_20'], line=dict(color='orange', width=1), name="SMA 20"))
+    if 'EMA_50' in df.columns:
+        fig.add_trace(go.Scatter(x=df.index, y=df['EMA_50'], line=dict(color='lightblue', width=1), name="EMA 50"))
 
     fig.update_layout(
         margin=dict(l=5, r=5, t=5, b=5),
-        height=300,
+        height=320,
         xaxis_rangeslider_visible=False,
         template="plotly_dark",
         showlegend=False
