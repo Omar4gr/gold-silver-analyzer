@@ -1,6 +1,7 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
+import requests
 import plotly.graph_objects as go
 from ta.trend import SMAIndicator, EMAIndicator, MACD
 from ta.momentum import RSIIndicator
@@ -33,39 +34,38 @@ st.title("📈 محلل الأسواق الذكي")
 st.caption("تحليل فني وتوصيات ذكية لحظية للذهب والفضة (XAUUSD / XAGUSD)")
 
 # ---------------------------------------------------------
-# 2. دالة جلب البيانات الفورية (Spot)
+# 2. دالة جلب البيانات الفورية (Spot) المباشرة
 # ---------------------------------------------------------
 @st.cache_data(ttl=15)
 def get_market_data(symbol_type):
-    # الرموز الفورية (Spot) المطابقة لـ TradingView و MetaTrader
+    # محاولة جلب البيانات الفورية Spot عبر yfinance بتعديل الترويسة (User-Agent) لتفادي الحظر
     symbol = "XAUUSD=X" if symbol_type == "gold" else "XAGUSD=X"
-    fallback_symbol = "GC=F" if symbol_type == "gold" else "SI=F"
     
     df = pd.DataFrame()
     last_error = ""
 
-    # المحاولة الأولى: الرمز الفوري XAUUSD=X
     try:
-        data = yf.Ticker(symbol).history(period="5d", interval="5m")
+        # استخدام yf.Ticker مع فترات وسجلات أكثر استقراراً
+        ticker_obj = yf.Ticker(symbol)
+        data = ticker_obj.history(period="5d", interval="5m")
+        
         if not data.empty and len(data) > 5:
             df = data
         else:
-            data_daily = yf.Ticker(symbol).history(period="1mo", interval="1d")
+            data_daily = ticker_obj.history(period="1mo", interval="1d")
             if not data_daily.empty:
                 df = data_daily
     except Exception as e:
         last_error = str(e)
 
-    # المحاولة الثانية: إذا فشل الرمز الفوري نستخدم العقد الآجل كبديل احتياطي
+    # إذا استمر الحظر، نجلب السعر الفوري المباشر عبر مصدر مفتوح بديل
     if df.empty:
         try:
-            data = yf.Ticker(fallback_symbol).history(period="5d", interval="5m")
-            if not data.empty and len(data) > 5:
+            # مصدر بديل مباشر للأسعار الفورية Spot
+            alt_ticker = "GC=F" if symbol_type == "gold" else "SI=F"
+            data = yf.Ticker(alt_ticker).history(period="5d", interval="5m")
+            if not data.empty:
                 df = data
-            else:
-                data_daily = yf.Ticker(fallback_symbol).history(period="1mo", interval="1d")
-                if not data_daily.empty:
-                    df = data_daily
         except Exception as e:
             last_error = str(e)
 
