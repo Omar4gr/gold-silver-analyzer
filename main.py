@@ -1,7 +1,6 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
-import requests
 import plotly.graph_objects as go
 from ta.trend import SMAIndicator, EMAIndicator, MACD
 from ta.momentum import RSIIndicator
@@ -34,26 +33,22 @@ st.title("📈 محلل الأسواق الذكي")
 st.caption("تحليل فني وتوصيات ذكية لحظية للذهب والفضة")
 
 # ---------------------------------------------------------
-# 2. دالة جلب البيانات الذكية المتعددة المصادر (تتجاوز الحظر)
+# 2. دالة جلب البيانات والتحليل الفني
 # ---------------------------------------------------------
 @st.cache_data(ttl=15)
 def get_market_data(symbol_type):
-    # رموز الذهب والفضة
     tickers = ["GC=F", "XAUUSD=X"] if symbol_type == "gold" else ["SI=F", "XAGUSD=X"]
     
     df = pd.DataFrame()
     last_error = ""
 
-    # تجربة المصادر حتى ينجح أحدها
     for ticker in tickers:
         try:
-            # محاولة جلب البيانات بفاصل 5 دقائق
             data = yf.Ticker(ticker).history(period="5d", interval="5m")
             if not data.empty and len(data) > 5:
                 df = data
                 break
             
-            # إذا فشلت الـ 5 دقائق، جلب اليومية
             data_daily = yf.Ticker(ticker).history(period="1mo", interval="1d")
             if not data_daily.empty:
                 df = data_daily
@@ -66,17 +61,18 @@ def get_market_data(symbol_type):
         return None, None, f"فشل جلب البيانات. يرجى المحاولة لاحقاً ({last_error})"
 
     try:
-        # تنظيف البيانات
         df = df.dropna(subset=['Close'])
         close = df['Close']
 
-        # حساب المؤشرات
         window_sma = min(20, len(df))
         window_ema = min(50, len(df))
 
+        # حساب المؤشرات الفنية
         df['SMA_20'] = SMAIndicator(close=close, window=window_sma).sma_indicator()
         df['EMA_50'] = EMAIndicator(close=close, window=window_ema).ema_indicator()
-        df['RSI'] = RSIIndicator(close=close, window=14).rsi_indicator()
+        
+        # تصحيح دالة RSI هنا
+        df['RSI'] = RSIIndicator(close=close, window=14).rsi()
         
         macd_obj = MACD(close=close)
         df['MACD'] = macd_obj.macd()
@@ -143,7 +139,7 @@ def render_market_view(symbol_type, name):
     else:
         st.warning(rec_text)
 
-    # الرسم البياني
+    # الرسم البياني الشمعي
     fig = go.Figure()
     fig.add_trace(go.Candlestick(
         x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name="السعر"
