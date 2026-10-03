@@ -61,7 +61,7 @@ st.markdown('<div class="sub-title">تحليل لحظي بالدولار مع ش
 api_key = st.secrets.get("GEMINI_API_KEY", "")
 
 with st.sidebar:
-    st.header("⚙️️ إعدادات التداول")
+    st.header("⚙️ إعدادات التداول")
     if not api_key:
         api_key = st.text_input("أدخل مفتاح Gemini API Key (اختياري):", type="password")
     
@@ -271,27 +271,38 @@ if user_prompt:
     else:
         with st.chat_message("assistant"):
             with st.spinner("جاري تحليل الأسواق وإعداد التوصية..."):
-                try:
-                    client = genai.Client(api_key=api_key)
-                    prompt_full = f"""
-                    أنت خبير تداول ومستشار مالي لحظي للصفقات السريعة (Scalping).
-                    رأس مال المستخدم المتاح: {capital_usd}$ USD.
-                    
-                    بيانات السوق الحالية اللحظية:
-                    {active_analysis}
-                    
-                    سؤال المستخدم: {user_prompt}
-                    
-                    أجب بوضوح مباشر: هل ينصح بالبيع أم الشراء أم الانتظار الآن؟ وحدد له المبلغ الدقيق للدخول بالدولار وهدف الربح ووقف الخسارة.
-                    """
-                    
-                    response = client.models.generate_content(
-                        model='gemini-2.5-flash',
-                        contents=prompt_full,
-                    )
-                    
-                    bot_response = response.text
+                client = genai.Client(api_key=api_key)
+                prompt_full = f"""
+                أنت خبير تداول ومستشار مالي لحظي للصفقات السريعة (Scalping).
+                رأس مال المستخدم المتاح: {capital_usd}$ USD.
+                
+                بيانات السوق الحالية اللحظية:
+                {active_analysis}
+                
+                سؤال المستخدم: {user_prompt}
+                
+                أجب بوضوح مباشر: هل ينصح بالبيع أم الشراء أم الانتظار الآن؟ وحدد له المبلغ الدقيق للدخول بالدولار وهدف الربح ووقف الخسارة.
+                """
+                
+                # تجربة عدة نماذج متوافرة لتجنب أي توقف
+                candidate_models = ['gemini-2.5-flash', 'gemini-1.5-flash', 'gemini-2.0-flash']
+                bot_response = None
+                
+                for model_name in candidate_models:
+                    try:
+                        response = client.models.generate_content(
+                            model=model_name,
+                            contents=prompt_full,
+                        )
+                        if response and response.text:
+                            bot_response = response.text
+                            break
+                    except Exception:
+                        continue
+                
+                if bot_response:
                     st.markdown(bot_response)
                     st.session_state.chat_history.append({"role": "assistant", "content": bot_response})
-                except Exception as e:
-                    st.error(f"حدث خطأ أثناء الاتصال بالمساعد: {e}")
+                else:
+                    err_msg = "تعذر الاتصال بالنموذج حالياً، يرجى التأكد من صلاحية مفتاح API Key والمحاولة لاحقاً."
+                    st.error(err_msg)
