@@ -6,185 +6,141 @@ from ta.trend import SMAIndicator, EMAIndicator, MACD
 from ta.momentum import RSIIndicator
 from streamlit_autorefresh import st_autorefresh
 
-# 1. إعدادات الصفحة (يجب أن تكون أول أمر Streamlit في الملف)
+# 1. إعدادات الصفحة والتصميم
 st.set_page_config(
-    page_title="محلل الذهب والفضة الذكي",
+    page_title="محلل الأسواق الذكي",
     page_icon="📈",
-    layout="centered",
+    layout="wide",
     initial_sidebar_state="collapsed"
 )
 
-# 2. التحديث التلقائي كل 10 ثانية
-st_autorefresh(interval=10000, key="data_refresh")
+# تحديث تلقائي كل 30 ثانية
+st_autorefresh(interval=30000, key="datarefresh")
 
-# 3. تنسيق CSS
+# تنسيق الخطوط والأحجام للشاشات الصغيرة
 st.markdown("""
     <style>
-    .stApp {
-        max-width: 100%;
-        margin: 0 auto;
-    }
-    .ai-box {
-        background-color: #1a233a;
-        border-right: 5px solid #2962ff;
-        padding: 15px;
-        border-radius: 8px;
-        margin-top: 10px;
-        margin-bottom: 15px;
-    }
+    h1 { font-size: 1.8rem !important; text-align: center; }
+    h2 { font-size: 1.3rem !important; }
+    .block-container { padding-top: 1.5rem !important; padding-bottom: 1rem !important; }
+    .stAlert { font-size: 0.95rem !important; border-radius: 10px; }
+    .stButton>button { width: 100%; border-radius: 8px; font-weight: bold; }
     </style>
 """, unsafe_allow_html=True)
 
 st.title("📈 محلل الأسواق الذكي")
-st.caption("رسوم بيانية تفاعلية وتحليل بالذكاء الاصطناعي للذهب والفضة")
+st.caption("تحليل فني وتوصيات ذكية لحظية للذهب والفضة")
 
-@st.cache_data(ttl=30)
-def fetch_data_and_analyze(ticker_symbol, period="30d", interval="1h"):
+# 2. دالة جلب البيانات والتحليل
+@st.cache_data(ttl=15)
+def get_market_data(ticker_symbol):
     try:
-        ticker = yf.Ticker(ticker_symbol)
-        df = ticker.history(period=period, interval=interval)
+        df = yf.download(ticker_symbol, period="5d", interval="5m", progress=False)
         if df.empty:
-            return None, None
+            return None, None, "لا توجد بيانات متاحة حالياً"
 
-        # حساب المؤشرات الفنية
-        df['SMA_20'] = SMAIndicator(close=df['Close'], window=20).sma_indicator()
-        df['EMA_50'] = EMAIndicator(close=df['Close'], window=50).ema_indicator()
-        df['RSI'] = RSIIndicator(close=df['Close'], window=14).rsi()
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+
+        close = df['Close']
         
-        macd = MACD(close=df['Close'])
-        df['MACD'] = macd.macd()
-        df['MACD_Signal'] = macd.macd_signal()
+        # المؤشرات الفنية
+        df['SMA_20'] = SMAIndicator(close=close, window=20).sma_indicator()
+        df['EMA_50'] = EMAIndicator(close=close, window=50).ema_indicator()
+        df['RSI'] = RSIIndicator(close=close, window=14).rsi_indicator()
+        
+        macd_obj = MACD(close=close)
+        df['MACD'] = macd_obj.macd()
+        df['MACD_Signal'] = macd_obj.macd_signal()
 
         latest = df.iloc[-1]
         prev = df.iloc[-2]
+        
+        current_price = latest['Close']
+        price_change = current_price - prev['Close']
 
+        # حساب التوصية
         score = 0
-        reasons = []
-
-        # 1. المتوسطات المتحركة
-        if latest['Close'] > latest['SMA_20'] > latest['EMA_50']:
+        if current_price > latest['SMA_20'] and current_price > latest['EMA_50']:
             score += 2
-            reasons.append("السعر أعلى من المتوسطات 20 و 50 (اتجاه صاعد قوي)")
-        elif latest['Close'] < latest['SMA_20'] < latest['EMA_50']:
+        elif current_price < latest['SMA_20'] and current_price < latest['EMA_50']:
             score -= 2
-            reasons.append("السعر أسفل المتوسطات (اتجاه هابط ضاغط)")
-
-        # 2. مؤشر RSI
-        rsi_val = latest['RSI']
-        if rsi_val < 30:
+            
+        if latest['RSI'] < 30:
             score += 3
-            reasons.append(f"مؤشر RSI منخفض جداً ({round(rsi_val,1)}) - تشبع بيعي وفرصة ارتداد أعلى")
-        elif rsi_val > 70:
+        elif latest['RSI'] > 70:
             score -= 3
-            reasons.append(f"مؤشر RSI مرتفع جداً ({round(rsi_val,1)}) - تشبع شرائي واحتمال تصحيح للهبوط")
-        else:
-            reasons.append(f"مؤشر RSI متوازن ({round(rsi_val,1)})")
-
-        # 3. تقاطع MACD
-        if prev['MACD'] < prev['MACD_Signal'] and latest['MACD'] > latest['MACD_Signal']:
+            
+        if latest['MACD'] > latest['MACD_Signal'] and prev['MACD'] <= prev['MACD_Signal']:
             score += 2
-            reasons.append("حدث تقاطع إيجابي لمؤشر MACD (إشارة دخول شراء)")
-        elif prev['MACD'] > prev['MACD_Signal'] and latest['MACD'] < latest['MACD_Signal']:
+        elif latest['MACD'] < latest['MACD_Signal'] and prev['MACD'] >= prev['MACD_Signal']:
             score -= 2
-            reasons.append("حدث تقاطع سلبي لمؤشر MACD (إشارة خروج/بيع)")
 
-        # القرار النهائي
         if score >= 3:
-            decision = "🟢 الوقت مناسب للشراء (Buy Signal)"
-            confidence = "عالية"
+            rec, color, desc = "شراء (Buy)", "green", "الاتجاه صاعد مع إشارات إيجابية قوية."
         elif score <= -3:
-            decision = "🔴 الوقت مناسب للبيع / جني الأرباح (Sell Signal)"
-            confidence = "عالية"
+            rec, color, desc = "بيع (Sell)", "red", "الاتجاه هابط مع وجود ضغط بيعي قوي."
         else:
-            decision = "🟡 محايد - يفضل الانتظار والمراقبة (Hold)"
-            confidence = "متوسطة"
+            rec, color, desc = "محايد (Hold)", "orange", "السوق في حالة تذبذب، يفضل الانتظار."
 
-        ai_analysis = {
-            "price": round(latest['Close'], 2),
-            "change": round(latest['Close'] - df.iloc[0]['Close'], 2),
-            "rsi": round(rsi_val, 2),
-            "decision": decision,
-            "confidence": confidence,
-            "reasons": reasons
+        analysis = {
+            'price': current_price,
+            'change': price_change,
+            'rsi': latest['RSI'],
+            'recommendation': rec,
+            'color': color,
+            'desc': desc
         }
+        return df, analysis, None
+    except Exception as e:
+        return None, None, str(e)
 
-        return df, ai_analysis
-    except Exception:
-        return None, None
+# 3. عرض علامات التبويب (الذهب والفضة الفورية)
+tab_gold, tab_silver = st.tabs(["🥇 الذهب (XAU)", "🥈 الفضة (XAG)"])
 
-def create_candlestick_chart(df, name):
+GOLD_SYMBOL = "XAUUSD=X"
+SILVER_SYMBOL = "XAGUSD=X"
+
+def render_market_view(symbol, name):
+    df, analysis, error = get_market_data(symbol)
+    
+    if error or df is None:
+        st.error(f"تعذر جلب بيانات {name}. يرجى محاولة التحديث.")
+        return
+
+    st.metric(label=f"سعر {name} الحالي (Spot)", value=f"${analysis['price']:.2f}", delta=f"{analysis['change']:+.2f}")
+
+    rec_text = f"**توصية الذكاء الاصطناعي:** {analysis['recommendation']}\n\n_{analysis['desc']}_"
+    if analysis['color'] == "green":
+        st.success(rec_text)
+    elif analysis['color'] == "red":
+        st.error(rec_text)
+    else:
+        st.warning(rec_text)
+
+    # الرسم البياني
     fig = go.Figure()
-
     fig.add_trace(go.Candlestick(
-        x=df.index,
-        open=df['Open'],
-        high=df['High'],
-        low=df['Low'],
-        close=df['Close'],
-        name="السعر"
+        x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name="السعر"
     ))
-
-    fig.add_trace(go.Scatter(x=df.index, y=df['SMA_20'], mode='lines', name='SMA 20', line=dict(color='orange', width=1)))
-    fig.add_trace(go.Scatter(x=df.index, y=df['EMA_50'], mode='lines', name='EMA 50', line=dict(color='lightblue', width=1)))
+    fig.add_trace(go.Scatter(x=df.index, y=df['SMA_20'], line=dict(color='orange', width=1), name="SMA 20"))
+    fig.add_trace(go.Scatter(x=df.index, y=df['EMA_50'], line=dict(color='lightblue', width=1), name="EMA 50"))
 
     fig.update_layout(
-        title=f"رسم بياني تفاعلي - {name}",
-        yaxis_title="السعر ($)",
+        margin=dict(l=5, r=5, t=5, b=5),
+        height=300,
         xaxis_rangeslider_visible=False,
         template="plotly_dark",
-        margin=dict(l=10, r=10, t=40, b=10),
-        height=400
+        showlegend=False
     )
-    return fig
+    st.plotly_chart(fig, use_container_width=True)
 
-if st.button("تحديث يدوي الآن 🔄", use_container_width=True):
+with tab_gold:
+    render_market_view(GOLD_SYMBOL, "الذهب")
+
+with tab_silver:
+    render_market_view(SILVER_SYMBOL, "الفضة")
+
+if st.button("🔄 تحديث البيانات"):
     st.cache_data.clear()
     st.rerun()
-
-st.write("")
-
-tab1, tab2 = st.tabs(["🥇 الذهب (XAU)", "🥈 الفضة (XAG)"])
-
-with tab1:
-    df_gold, ai_gold = fetch_data_and_analyze("GC=F")
-    if ai_gold:
-        st.metric(label="سعر الذهب الحالي", value=f"${ai_gold['price']}", delta=f"${ai_gold['change']}")
-        
-        st.markdown(f"""
-        <div class="ai-box">
-            <h4>🤖 توصية مستشار الذكاء الاصطناعي:</h4>
-            <h3>{ai_gold['decision']}</h3>
-            <p><b>درجة الثقة:</b> {ai_gold['confidence']}</p>
-        </div>
-        """, unsafe_allow_html=True)
-
-        with st.expander("🔍 أسباب التوصية والتحليل الفني التفصيلي"):
-            for reason in ai_gold['reasons']:
-                st.write(f"- {reason}")
-
-        fig = create_candlestick_chart(df_gold, "الذهب")
-        st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.error("تعذر جلب بيانات الذهب حالياً، يرجى إعادة المحاولة.")
-
-with tab2:
-    df_silver, ai_silver = fetch_data_and_analyze("SI=F")
-    if ai_silver:
-        st.metric(label="سعر الفضة الحالي", value=f"${ai_silver['price']}", delta=f"${ai_silver['change']}")
-        
-        st.markdown(f"""
-        <div class="ai-box">
-            <h4>🤖 توصية مستشار الذكاء الاصطناعي:</h4>
-            <h3>{ai_silver['decision']}</h3>
-            <p><b>درجة الثقة:</b> {ai_silver['confidence']}</p>
-        </div>
-        """, unsafe_allow_html=True)
-
-        with st.expander("🔍 أسباب التوصية والتحليل الفني التفصيلي"):
-            for reason in ai_silver['reasons']:
-                st.write(f"- {reason}")
-
-        fig = create_candlestick_chart(df_silver, "الفضة")
-        st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.error("تعذر جلب بيانات الفضة حالياً، يرجى إعادة المحاولة.")
