@@ -5,7 +5,7 @@ import plotly.graph_objects as go
 from ta.trend import SMAIndicator, EMAIndicator
 from ta.momentum import RSIIndicator, StochasticOscillator
 from streamlit_autorefresh import st_autorefresh
-import google.generativeai as genai
+from google import genai
 
 # ---------------------------------------------------------
 # 1. إعدادات الصفحة والتصميم
@@ -61,7 +61,7 @@ st.markdown('<div class="sub-title">تحليل لحظي بالدولار مع ش
 api_key = st.secrets.get("GEMINI_API_KEY", "")
 
 with st.sidebar:
-    st.header("⚙️ إعدادات التداول")
+    st.header("⚙️️ إعدادات التداول")
     if not api_key:
         api_key = st.text_input("أدخل مفتاح Gemini API Key (اختياري):", type="password")
     
@@ -72,9 +72,6 @@ with st.sidebar:
         step=50.0,
         format="%.2f"
     )
-
-if api_key:
-    genai.configure(api_key=api_key)
 
 # ---------------------------------------------------------
 # 3. دالة جلب البيانات والتحليل اللحظي
@@ -274,32 +271,27 @@ if user_prompt:
     else:
         with st.chat_message("assistant"):
             with st.spinner("جاري تحليل الأسواق وإعداد التوصية..."):
-                context_data = f"""
-                أنت خبير تداول ومستشار مالي لحظي للصفقات السريعة (Scalping).
-                رأس مال المستخدم المتاح: {capital_usd}$ USD.
-                
-                بيانات السوق الحالية اللحظية:
-                {active_analysis}
-                
-                أجب بوضوح مباشر على سؤال المستخدم: هل ينصح بالبيع أم الشراء أم الانتظار الآن؟ وحدد له المبلغ الدقيق للدخول بالدولار وهدف الربح ووقف الخسارة.
-                """
-                
-                # قائمة بالنماذج المتاحة للتجربة التلقائية
-                candidate_models = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-pro"]
-                response_text = None
-                
-                for m_name in candidate_models:
-                    try:
-                        model = genai.GenerativeModel(m_name)
-                        response = model.generate_content([context_data, user_prompt])
-                        if response and response.text:
-                            response_text = response.text
-                            break
-                    except Exception:
-                        continue
-                
-                if response_text:
-                    st.markdown(response_text)
-                    st.session_state.chat_history.append({"role": "assistant", "content": response_text})
-                else:
-                    st.error("تعذر الاتصال بالنموذج حالياً، يرجى المحاولة لاحقاً.")
+                try:
+                    client = genai.Client(api_key=api_key)
+                    prompt_full = f"""
+                    أنت خبير تداول ومستشار مالي لحظي للصفقات السريعة (Scalping).
+                    رأس مال المستخدم المتاح: {capital_usd}$ USD.
+                    
+                    بيانات السوق الحالية اللحظية:
+                    {active_analysis}
+                    
+                    سؤال المستخدم: {user_prompt}
+                    
+                    أجب بوضوح مباشر: هل ينصح بالبيع أم الشراء أم الانتظار الآن؟ وحدد له المبلغ الدقيق للدخول بالدولار وهدف الربح ووقف الخسارة.
+                    """
+                    
+                    response = client.models.generate_content(
+                        model='gemini-2.5-flash',
+                        contents=prompt_full,
+                    )
+                    
+                    bot_response = response.text
+                    st.markdown(bot_response)
+                    st.session_state.chat_history.append({"role": "assistant", "content": bot_response})
+                except Exception as e:
+                    st.error(f"حدث خطأ أثناء الاتصال بالمساعد: {e}")
