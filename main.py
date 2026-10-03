@@ -1,63 +1,81 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
-import requests
 import plotly.graph_objects as go
 from ta.trend import SMAIndicator, EMAIndicator, MACD
 from ta.momentum import RSIIndicator
 from streamlit_autorefresh import st_autorefresh
 
 # ---------------------------------------------------------
-# 1. إعدادات الصفحة والتصميم
+# 1. إعدادات الصفحة والتصميم المخصص للهواتف والـ APK
 # ---------------------------------------------------------
 st.set_page_config(
     page_title="محلل الأسواق الذكي",
     page_icon="📈",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed"
 )
 
 # تحديث تلقائي كل 30 ثانية
 st_autorefresh(interval=30000, key="datarefresh")
 
+# تنسيق CSS احترافي لإلغاء الحواف المزعجة وإخفاء القوائم الجانبية
 st.markdown("""
     <style>
-    h1 { font-size: 1.8rem !important; text-align: center; }
-    h2 { font-size: 1.3rem !important; }
-    .block-container { padding-top: 1.5rem !important; padding-bottom: 1rem !important; }
-    .stAlert { font-size: 0.95rem !important; border-radius: 10px; }
-    .stButton>button { width: 100%; border-radius: 8px; font-weight: bold; }
+    /* إخفاء القائمة الجانبية والشريط العلوي الافتراضي لـ Streamlit */
+    [data-testid="stSidebar"] { display: none; }
+    [data-testid="collapsedControl"] { display: none; }
+    header { visibility: hidden; height: 0px !important; }
+    footer { visibility: hidden; height: 0px !important; }
+    
+    /* ضبط الحواف والمساحات الخارجية لملء الشاشة بالكامل */
+    .block-container {
+        padding-top: 0.8rem !important;
+        padding-bottom: 0.5rem !important;
+        padding-left: 0.5rem !important;
+        padding-right: 0.5rem !important;
+        max-width: 100% !important;
+    }
+    
+    /* تحسين شكل العنوان والعناوين الفرعية */
+    .main-title {
+        text-align: center;
+        font-size: 1.6rem;
+        font-weight: bold;
+        margin-bottom: 0.2rem;
+    }
+    .sub-title {
+        text-align: center;
+        font-size: 0.85rem;
+        color: #888;
+        margin-bottom: 0.8rem;
+    }
+    
+    /* تنسيق أزرار التبويب Tabs */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 8px;
+        justify-content: center;
+    }
+    .stTabs [data-baseweb="tab"] {
+        padding: 8px 16px;
+        border-radius: 8px;
+        font-weight: bold;
+    }
+    
+    /* تحسين شكل التوصية */
+    .stAlert {
+        font-size: 0.9rem !important;
+        border-radius: 10px !important;
+        padding: 10px !important;
+    }
     </style>
 """, unsafe_allow_html=True)
 
-st.title("📈 محلل الأسواق الذكي")
-st.caption("تحليل فني وتوصيات ذكية لحظية مع إشعارات التليجرام")
+st.markdown('<div class="main-title">📈 محلل الأسواق الذكي</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-title">تحليل فني وتوصيات ذكية لحظية للذهب والفضة</div>', unsafe_allow_html=True)
 
 # ---------------------------------------------------------
-# 2. إعدادات الإشعارات (الشريط الجانبي)
-# ---------------------------------------------------------
-with st.sidebar:
-    st.header("🔔 إعدادات الإشعارات (Telegram)")
-    enable_notifications = st.checkbox("تفعيل الإشعارات الفورية", value=False)
-    telegram_bot_token = st.text_input("Bot Token", type="password", placeholder="123456789:ABCDefgh...")
-    telegram_chat_id = st.text_input("Chat ID", type="password", placeholder="987654321")
-
-# دالة إرسال إشعار عبر التليجرام
-def send_telegram_notification(message):
-    if enable_notifications and telegram_bot_token and telegram_chat_id:
-        url = f"https://api.telegram.org/bot{telegram_bot_token}/sendMessage"
-        payload = {
-            "chat_id": telegram_chat_id,
-            "text": message,
-            "parse_mode": "Markdown"
-        }
-        try:
-            requests.post(url, data=payload, timeout=5)
-        except Exception as e:
-            st.sidebar.error(f"فشل إرسال الإشعار: {e}")
-
-# ---------------------------------------------------------
-# 3. دالة جلب البيانات الفورية والتحليل الفني
+# 2. دالة جلب البيانات والتحليل الفني
 # ---------------------------------------------------------
 @st.cache_data(ttl=15)
 def get_market_data(symbol_type):
@@ -109,7 +127,7 @@ def get_market_data(symbol_type):
         current_price = float(latest['Close'])
         price_change = float(current_price - prev['Close'])
 
-        # خوارزمية التوصية
+        # خوارزمية حساب التوصية
         score = 0
         if current_price > latest.get('SMA_20', current_price) and current_price > latest.get('EMA_50', current_price):
             score += 2
@@ -143,11 +161,8 @@ def get_market_data(symbol_type):
         return None, None, str(e)
 
 # ---------------------------------------------------------
-# 4. واجهة العرض مع نظام تتبع التوصيات
+# 3. عرض البيانات والشاشات
 # ---------------------------------------------------------
-if 'last_signal' not in st.session_state:
-    st.session_state.last_signal = {'gold': None, 'silver': None}
-
 tab_gold, tab_silver = st.tabs(["🥇 الذهب (XAUUSD)", "🥈 الفضة (XAGUSD)"])
 
 def render_market_view(symbol_type, name):
@@ -157,8 +172,14 @@ def render_market_view(symbol_type, name):
         st.error(f"تعذر جلب بيانات {name}: {error}")
         return
 
-    st.metric(label=f"سعر {name} الحالي (Spot)", value=f"${analysis['price']:.2f}", delta=f"{analysis['change']:+.2f}")
+    # عرض السعر والتغير
+    st.metric(
+        label=f"سعر {name} الحالي (Spot)", 
+        value=f"${analysis['price']:.2f}", 
+        delta=f"{analysis['change']:+.2f}"
+    )
 
+    # عرض مربع التوصية
     rec_text = f"**توصية الذكاء الاصطناعي:** {analysis['recommendation']}\n\n_{analysis['desc']}_"
     if analysis['color'] == "green":
         st.success(rec_text)
@@ -167,21 +188,7 @@ def render_market_view(symbol_type, name):
     else:
         st.warning(rec_text)
 
-    # فحص التوصية وإرسال الإشعار عند تغير الإشارة فقط
-    current_rec = analysis['recommendation']
-    if current_rec in ["شراء (Buy)", "بيع (Sell)"]:
-        if st.session_state.last_signal[symbol_type] != current_rec:
-            st.session_state.last_signal[symbol_type] = current_rec
-            
-            msg = f"🚨 *تنبيه جديد - {name}*\n\n" \
-                  f"📊 *التوصية:* {current_rec}\n" \
-                  f"💵 *السعر الحالي:* ${analysis['price']:.2f}\n" \
-                  f"📉 *مؤشر RSI:* {analysis['rsi']:.1f}\n\n" \
-                  f"📝 {analysis['desc']}"
-            
-            send_telegram_notification(msg)
-
-    # الرسم البياني
+    # الرسم البياني المخصص للتطبيقات المحمولة
     fig = go.Figure()
     fig.add_trace(go.Candlestick(
         x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name="السعر"
@@ -189,16 +196,16 @@ def render_market_view(symbol_type, name):
     if 'SMA_20' in df.columns:
         fig.add_trace(go.Scatter(x=df.index, y=df['SMA_20'], line=dict(color='orange', width=1), name="SMA 20"))
     if 'EMA_50' in df.columns:
-        fig.add_trace(go.Scatter(x=df.index, y=df['EMA_50'], line=dict(color='lightblue', width=1), name="EMA 50"))
+        fig.add_trace(go.Scatter(x=df.index, y=df['EMA_50'], line=dict(color='#00d2ff', width=1), name="EMA 50"))
 
     fig.update_layout(
-        margin=dict(l=5, r=5, t=5, b=5),
-        height=320,
+        margin=dict(l=0, r=0, t=10, b=0),
+        height=380,
         xaxis_rangeslider_visible=False,
         template="plotly_dark",
         showlegend=False
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
 
 with tab_gold:
     render_market_view("gold", "الذهب")
@@ -206,6 +213,7 @@ with tab_gold:
 with tab_silver:
     render_market_view("silver", "الفضة")
 
-if st.button("🔄 تحديث البيانات"):
+# زر التحديث في الأسفل بصورة مدمجة
+if st.button("🔄 تحديث الأسعار والتحليل"):
     st.cache_data.clear()
     st.rerun()
