@@ -30,32 +30,44 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("📈 محلل الأسواق الذكي")
-st.caption("تحليل فني وتوصيات ذكية لحظية للذهب والفضة")
+st.caption("تحليل فني وتوصيات ذكية لحظية للذهب والفضة (XAUUSD / XAGUSD)")
 
 # ---------------------------------------------------------
-# 2. دالة جلب البيانات والتحليل الفني
+# 2. دالة جلب البيانات الفورية (Spot)
 # ---------------------------------------------------------
 @st.cache_data(ttl=15)
 def get_market_data(symbol_type):
-    tickers = ["GC=F", "XAUUSD=X"] if symbol_type == "gold" else ["SI=F", "XAGUSD=X"]
+    # الرموز الفورية (Spot) المطابقة لـ TradingView و MetaTrader
+    symbol = "XAUUSD=X" if symbol_type == "gold" else "XAGUSD=X"
+    fallback_symbol = "GC=F" if symbol_type == "gold" else "SI=F"
     
     df = pd.DataFrame()
     last_error = ""
 
-    for ticker in tickers:
-        try:
-            data = yf.Ticker(ticker).history(period="5d", interval="5m")
-            if not data.empty and len(data) > 5:
-                df = data
-                break
-            
-            data_daily = yf.Ticker(ticker).history(period="1mo", interval="1d")
+    # المحاولة الأولى: الرمز الفوري XAUUSD=X
+    try:
+        data = yf.Ticker(symbol).history(period="5d", interval="5m")
+        if not data.empty and len(data) > 5:
+            df = data
+        else:
+            data_daily = yf.Ticker(symbol).history(period="1mo", interval="1d")
             if not data_daily.empty:
                 df = data_daily
-                break
+    except Exception as e:
+        last_error = str(e)
+
+    # المحاولة الثانية: إذا فشل الرمز الفوري نستخدم العقد الآجل كبديل احتياطي
+    if df.empty:
+        try:
+            data = yf.Ticker(fallback_symbol).history(period="5d", interval="5m")
+            if not data.empty and len(data) > 5:
+                df = data
+            else:
+                data_daily = yf.Ticker(fallback_symbol).history(period="1mo", interval="1d")
+                if not data_daily.empty:
+                    df = data_daily
         except Exception as e:
             last_error = str(e)
-            continue
 
     if df.empty:
         return None, None, f"فشل جلب البيانات. يرجى المحاولة لاحقاً ({last_error})"
@@ -70,8 +82,6 @@ def get_market_data(symbol_type):
         # حساب المؤشرات الفنية
         df['SMA_20'] = SMAIndicator(close=close, window=window_sma).sma_indicator()
         df['EMA_50'] = EMAIndicator(close=close, window=window_ema).ema_indicator()
-        
-        # تصحيح دالة RSI هنا
         df['RSI'] = RSIIndicator(close=close, window=14).rsi()
         
         macd_obj = MACD(close=close)
@@ -120,7 +130,7 @@ def get_market_data(symbol_type):
 # ---------------------------------------------------------
 # 3. واجهة العرض
 # ---------------------------------------------------------
-tab_gold, tab_silver = st.tabs(["🥇 الذهب (XAU)", "🥈 الفضة (XAG)"])
+tab_gold, tab_silver = st.tabs(["🥇 الذهب (XAUUSD)", "🥈 الفضة (XAGUSD)"])
 
 def render_market_view(symbol_type, name):
     df, analysis, error = get_market_data(symbol_type)
@@ -129,7 +139,7 @@ def render_market_view(symbol_type, name):
         st.error(f"تعذر جلب بيانات {name}: {error}")
         return
 
-    st.metric(label=f"سعر {name} الحالي", value=f"${analysis['price']:.2f}", delta=f"{analysis['change']:+.2f}")
+    st.metric(label=f"سعر {name} الحالي (Spot)", value=f"${analysis['price']:.2f}", delta=f"{analysis['change']:+.2f}")
 
     rec_text = f"**توصية الذكاء الاصطناعي:** {analysis['recommendation']}\n\n_{analysis['desc']}_"
     if analysis['color'] == "green":
@@ -139,7 +149,7 @@ def render_market_view(symbol_type, name):
     else:
         st.warning(rec_text)
 
-    # الرسم البياني الشمعي
+    # الرسم البياني
     fig = go.Figure()
     fig.add_trace(go.Candlestick(
         x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name="السعر"
