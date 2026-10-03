@@ -55,17 +55,17 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.markdown('<div class="main-title">📈 محلل الصفقات السريعة</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-title">توصيات لحظية وإدارة رأس المال بالدينار العراقي (IQD)</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-title">توصيات لحظية وحاسبة تحويل رأس المال بالدينار والدولار</div>', unsafe_allow_html=True)
 
 # ---------------------------------------------------------
-# 2. إدخال رأس المال وسعر الصرف
+# 2. إدخال رأس المال وحسابه التلقائي بالدولار
 # ---------------------------------------------------------
-col_cap1, col_cap2 = st.columns([2, 1])
+col_cap1, col_cap2 = st.columns(2)
 
 with col_cap1:
     capital_iqd = st.number_input(
-        "💰 كم تملك رأس مال لللتداول؟ (بالدينار العراقي):", 
-        min_value=100000.0, 
+        "💰 كم تملك رأس مال للتداول؟ (بالدينار العراقي):", 
+        min_value=1.0, 
         value=1000000.0, 
         step=50000.0,
         format="%.0f"
@@ -73,11 +73,17 @@ with col_cap1:
 
 with col_cap2:
     usd_iqd_rate = st.number_input(
-        "💱 سعر صرف $1 بالدينار:", 
-        min_value=1000.0, 
+        "💱 سعر صرف $1 بالدينار العراقي:", 
+        min_value=1.0, 
         value=1500.0, 
         step=10.0
     )
+
+# حساب المعادل بالدولار تلقائياً
+capital_usd = capital_iqd / usd_iqd_rate if usd_iqd_rate > 0 else 0.0
+
+# عرض القيمة المعادلة بالدولار مباشرة تحت الخانات
+st.info(f"💵 **رأس مالك المعادل بالدولار:** `${capital_usd:,.2f} USD` (بناءً على سعر الصرف {usd_iqd_rate:,.0f} د.ع)")
 
 # ---------------------------------------------------------
 # 3. دالة جلب البيانات والتحليل اللحظي
@@ -136,33 +142,32 @@ def get_market_data(symbol_type, capital_in_iqd, exchange_rate):
         else: score -= 1
 
         rsi_val = latest.get('RSI', 50)
-        if rsi_val < 35: score += 2  # تشبع بيعي
-        elif rsi_val > 65: score -= 2 # تشبع شرائي
+        if rsi_val < 35: score += 2
+        elif rsi_val > 65: score -= 2
 
         stoch_k = latest.get('Stoch_K', 50)
         if stoch_k < 20: score += 2
         elif stoch_k > 80: score -= 2
 
-        # تحديد نسبة المخاطرة والتوصية بناءً على رأس المال
         if score >= 3:
             rec = "شراء سريع (Scalp Buy 🟢)"
             color = "green"
             desc = "صعود لحظي متوقع! فرصة دخول سريعة."
-            invest_ratio = 0.08  # 8% من رأس المال
-            tp_perc = 0.005      # ربح 0.5%
-            sl_perc = 0.003      # وقف خسارة 0.3%
+            invest_ratio = 0.08
+            tp_perc = 0.005
+            sl_perc = 0.003
         elif score <= -3:
             rec = "بيع سريع (Scalp Sell 🔴)"
             color = "red"
             desc = "هبوط لحظي متوقع! ضغط بيعي قوي."
-            invest_ratio = 0.08  # 8%
+            invest_ratio = 0.08
             tp_perc = 0.005
             sl_perc = 0.003
         elif score in [1, 2]:
             rec = "شراء خفيف (Weak Buy 🟡)"
             color = "orange"
             desc = "إشارة صعود بسيطة، ينصح بالدخول بمبلغ صغير."
-            invest_ratio = 0.03  # 3% فقط
+            invest_ratio = 0.03
             tp_perc = 0.003
             sl_perc = 0.002
         elif score in [-1, -2]:
@@ -179,12 +184,16 @@ def get_market_data(symbol_type, capital_in_iqd, exchange_rate):
             invest_ratio = 0.0
             tp_perc, sl_perc = 0.0, 0.0
 
-        # الحسابات المليّة بالدينار العراقي (IQD)
+        # الحسابات بالدينار والدولار
         invest_amount_iqd = capital_in_iqd * invest_ratio
+        invest_amount_usd = invest_amount_iqd / exchange_rate if exchange_rate > 0 else 0
+        
         expected_profit_iqd = invest_amount_iqd * tp_perc
+        expected_profit_usd = expected_profit_iqd / exchange_rate if exchange_rate > 0 else 0
+        
         expected_loss_iqd = invest_amount_iqd * sl_perc
+        expected_loss_usd = expected_loss_iqd / exchange_rate if exchange_rate > 0 else 0
 
-        # أسعار الأهداف بالدولار
         if "شراء" in rec:
             tp_usd = current_price_usd * (1 + tp_perc)
             sl_usd = current_price_usd * (1 - sl_perc)
@@ -195,14 +204,16 @@ def get_market_data(symbol_type, capital_in_iqd, exchange_rate):
         analysis = {
             'price_usd': current_price_usd,
             'change_usd': price_change_usd,
-            'price_iqd': current_price_usd * exchange_rate,
             'recommendation': rec,
             'color': color,
             'desc': desc,
             'invest_amount_iqd': invest_amount_iqd,
+            'invest_amount_usd': invest_amount_usd,
             'invest_percent': invest_ratio * 100,
             'expected_profit_iqd': expected_profit_iqd,
+            'expected_profit_usd': expected_profit_usd,
             'expected_loss_iqd': expected_loss_iqd,
+            'expected_loss_usd': expected_loss_usd,
             'tp_usd': tp_usd,
             'sl_usd': sl_usd
         }
@@ -234,15 +245,15 @@ def render_market_view(symbol_type, name):
         st.metric(
             label="مبلغ الصفقة المقترح", 
             value=f"{analysis['invest_amount_iqd']:,.0f} د.ع", 
-            delta=f"{analysis['invest_percent']:.1f}% من رأس المال"
+            delta=f"${analysis['invest_amount_usd']:,.2f} ({analysis['invest_percent']:.1f}%)"
         )
 
-    # تفاصيل الصفقة بالدينار والأهداف
+    # تفاصيل الصفقة بالدينار والدولار
     rec_box = f"### {analysis['recommendation']}\n\n" \
               f"📌 **التحليل اللحظي:** {analysis['desc']}\n\n" \
-              f"💵 **المبلغ الموصى بالدخول به:** `{analysis['invest_amount_iqd']:,.0f} دينار عراقي`\n\n" \
-              f"🎯 **الربح المتوقع بالصفقة:** `+{analysis['expected_profit_iqd']:,.0f} د.ع` (عند سعر ${analysis['tp_usd']:.2f})\n\n" \
-              f"🛑 **أقصى خسارة مسموح بها:** `-{analysis['expected_loss_iqd']:,.0f} د.ع` (عند سعر ${analysis['sl_usd']:.2f})"
+              f"💵 **المبلغ الموصى بالدخول به:** `{analysis['invest_amount_iqd']:,.0f} د.ع` (أي `${analysis['invest_amount_usd']:,.2f}`)\n\n" \
+              f"🎯 **الربح المتوقع:** `+{analysis['expected_profit_iqd']:,.0f} د.ع` (`+${analysis['expected_profit_usd']:.2f}`) عند سعر ${analysis['tp_usd']:.2f}\n\n" \
+              f"🛑 **أقصى خسارة مسموح بها:** `-{analysis['expected_loss_iqd']:,.0f} د.ع` (`-${analysis['expected_loss_usd']:.2f}`) عند سعر ${analysis['sl_usd']:.2f}"
 
     if analysis['color'] == "green":
         st.success(rec_box)
