@@ -58,7 +58,6 @@ st.markdown('<div class="sub-title">تحليل لحظي بالدولار مع ش
 # ---------------------------------------------------------
 # 2. جلب المفتاح ورأس المال
 # ---------------------------------------------------------
-# محاولة جلب المفتاح من Secrets أو القائمة الجانبية
 api_key = st.secrets.get("GEMINI_API_KEY", "")
 
 with st.sidebar:
@@ -277,7 +276,7 @@ if user_prompt:
             with st.spinner("جاري تحليل الأسواق وإعداد التوصية..."):
                 try:
                     context_data = f"""
-                    أنت خبير تداول متناول ومستشار مالي لحظي للصفقات السريعة (Scalping).
+                    أنت خبير تداول ومستشار مالي لحظي للصفقات السريعة (Scalping).
                     رأس مال المستخدم المتاح: {capital_usd}$ USD.
                     
                     بيانات السوق الحالية اللحظية:
@@ -286,10 +285,19 @@ if user_prompt:
                     أجب بوضوح مباشر على سؤال المستخدم: هل ينصح بالبيع أم الشراء أم الانتظار الآن؟ وحدد له المبلغ الدقيق للدخول بالدولار وهدف الربح ووقف الخسارة.
                     """
                     
-                    model = genai.GenerativeModel("gemini-1.5-flash")
+                    # استخدام اسم الموديل المستقر الحديث
+                    model = genai.GenerativeModel("gemini-2.5-flash")
                     response = model.generate_content([context_data, user_prompt])
                     bot_response = response.text
                     st.markdown(bot_response)
                     st.session_state.chat_history.append({"role": "assistant", "content": bot_response})
                 except Exception as e:
-                    st.error(f"حدث خطأ أثناء الاتصال بالمساعد: {e}")
+                    # آلية احتياطية في حال تعذر اسم الموديل الأول
+                    try:
+                        model = genai.GenerativeModel("gemini-2.0-flash")
+                        response = model.generate_content([context_data, user_prompt])
+                        bot_response = response.text
+                        st.markdown(bot_response)
+                        st.session_state.chat_history.append({"role": "assistant", "content": bot_response})
+                    except Exception as e2:
+                        st.error(f"حدث خطأ أثناء الاتصال بالمساعد: {e2}")
