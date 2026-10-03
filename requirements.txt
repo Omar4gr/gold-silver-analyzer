@@ -1,7 +1,4 @@
 streamlit
-yfinance
+requests
 pandas
-plotly
-ta
-streamlit-autorefresh
-google-genai
+numpy
