@@ -1,13 +1,14 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
+import requests
 import plotly.graph_objects as go
 from ta.trend import SMAIndicator, EMAIndicator, MACD
 from ta.momentum import RSIIndicator
 from streamlit_autorefresh import st_autorefresh
 
 # ---------------------------------------------------------
-# 1. إعدادات الصفحة
+# 1. إعدادات الصفحة والتصميم
 # ---------------------------------------------------------
 st.set_page_config(
     page_title="محلل الأسواق الذكي",
@@ -19,7 +20,6 @@ st.set_page_config(
 # تحديث تلقائي كل 30 ثانية
 st_autorefresh(interval=30000, key="datarefresh")
 
-# تنسيق الموبايل
 st.markdown("""
     <style>
     h1 { font-size: 1.8rem !important; text-align: center; }
@@ -34,33 +34,45 @@ st.title("📈 محلل الأسواق الذكي")
 st.caption("تحليل فني وتوصيات ذكية لحظية للذهب والفضة")
 
 # ---------------------------------------------------------
-# 2. دالة جلب البيانات الذكية (تتحمل عطلة الأسواق)
+# 2. دالة جلب البيانات الذكية المتعددة المصادر (تتجاوز الحظر)
 # ---------------------------------------------------------
 @st.cache_data(ttl=15)
-def get_market_data(ticker_symbol):
-    try:
-        # المحاولة الأولى: جلب بيانات لحظية (5 دقائق)
-        df = yf.download(ticker_symbol, period="5d", interval="5m", progress=False)
-        
-        # إذا كانت فارغة (مثلاً بسبب عطلة نهاية الأسبوع)، نجلب البيانات اليومية
-        if df.empty or len(df) < 10:
-            df = yf.download(ticker_symbol, period="1mo", interval="1d", progress=False)
+def get_market_data(symbol_type):
+    # رموز الذهب والفضة
+    tickers = ["GC=F", "XAUUSD=X"] if symbol_type == "gold" else ["SI=F", "XAGUSD=X"]
+    
+    df = pd.DataFrame()
+    last_error = ""
+
+    # تجربة المصادر حتى ينجح أحدها
+    for ticker in tickers:
+        try:
+            # محاولة جلب البيانات بفاصل 5 دقائق
+            data = yf.Ticker(ticker).history(period="5d", interval="5m")
+            if not data.empty and len(data) > 5:
+                df = data
+                break
             
-        if df.empty:
-            return None, None, "لم يتم العثور على بيانات من المصدر."
+            # إذا فشلت الـ 5 دقائق، جلب اليومية
+            data_daily = yf.Ticker(ticker).history(period="1mo", interval="1d")
+            if not data_daily.empty:
+                df = data_daily
+                break
+        except Exception as e:
+            last_error = str(e)
+            continue
 
-        # تنظيف شكل الأعمدة
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = df.columns.get_level_values(0)
+    if df.empty:
+        return None, None, f"فشل جلب البيانات. يرجى المحاولة لاحقاً ({last_error})"
 
-        # التأكد من عدم وجود قيم مفقودة في الإغلاق
+    try:
+        # تنظيف البيانات
         df = df.dropna(subset=['Close'])
-
         close = df['Close']
-        
-        # حساب المؤشرات الفنية بمرونة
-        window_sma = 20 if len(df) >= 20 else len(df) // 2
-        window_ema = 50 if len(df) >= 50 else len(df) - 1
+
+        # حساب المؤشرات
+        window_sma = min(20, len(df))
+        window_ema = min(50, len(df))
 
         df['SMA_20'] = SMAIndicator(close=close, window=window_sma).sma_indicator()
         df['EMA_50'] = EMAIndicator(close=close, window=window_ema).ema_indicator()
@@ -72,17 +84,17 @@ def get_market_data(ticker_symbol):
 
         latest = df.iloc[-1]
         prev = df.iloc[-2] if len(df) > 1 else latest
-        
+
         current_price = float(latest['Close'])
         price_change = float(current_price - prev['Close'])
 
-        # الخوارزمية
+        # خوارزمية التوصية
         score = 0
         if current_price > latest.get('SMA_20', current_price) and current_price > latest.get('EMA_50', current_price):
             score += 2
         elif current_price < latest.get('SMA_20', current_price) and current_price < latest.get('EMA_50', current_price):
             score -= 2
-            
+
         rsi_val = latest.get('RSI', 50)
         if rsi_val < 30:
             score += 3
@@ -90,7 +102,7 @@ def get_market_data(ticker_symbol):
             score -= 3
 
         if score >= 3:
-            rec, color, desc = "شراء (Buy)", "green", "الاتجاه صاعد مع إشارات إيجابية."
+            rec, color, desc = "شراء (Buy)", "green", "الاتجاه صاعد مع إشارات إيجابية قوية."
         elif score <= -3:
             rec, color, desc = "بيع (Sell)", "red", "الاتجاه هابط مع ضغط بيعي."
         else:
@@ -110,21 +122,18 @@ def get_market_data(ticker_symbol):
         return None, None, str(e)
 
 # ---------------------------------------------------------
-# 3. العرض
+# 3. واجهة العرض
 # ---------------------------------------------------------
 tab_gold, tab_silver = st.tabs(["🥇 الذهب (XAU)", "🥈 الفضة (XAG)"])
 
-GOLD_SYMBOL = "XAUUSD=X"
-SILVER_SYMBOL = "XAGUSD=X"
-
-def render_market_view(symbol, name):
-    df, analysis, error = get_market_data(symbol)
+def render_market_view(symbol_type, name):
+    df, analysis, error = get_market_data(symbol_type)
     
     if error or df is None:
         st.error(f"تعذر جلب بيانات {name}: {error}")
         return
 
-    st.metric(label=f"سعر {name} الحالي (Spot)", value=f"${analysis['price']:.2f}", delta=f"{analysis['change']:+.2f}")
+    st.metric(label=f"سعر {name} الحالي", value=f"${analysis['price']:.2f}", delta=f"{analysis['change']:+.2f}")
 
     rec_text = f"**توصية الذكاء الاصطناعي:** {analysis['recommendation']}\n\n_{analysis['desc']}_"
     if analysis['color'] == "green":
@@ -154,10 +163,10 @@ def render_market_view(symbol, name):
     st.plotly_chart(fig, use_container_width=True)
 
 with tab_gold:
-    render_market_view(GOLD_SYMBOL, "الذهب")
+    render_market_view("gold", "الذهب")
 
 with tab_silver:
-    render_market_view(SILVER_SYMBOL, "الفضة")
+    render_market_view("silver", "الفضة")
 
 if st.button("🔄 تحديث البيانات"):
     st.cache_data.clear()
