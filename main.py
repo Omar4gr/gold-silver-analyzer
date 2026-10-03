@@ -5,7 +5,8 @@ import plotly.graph_objects as go
 from ta.trend import SMAIndicator, EMAIndicator
 from ta.momentum import RSIIndicator, StochasticOscillator
 from streamlit_autorefresh import st_autorefresh
-from google import genai
+import requests
+import json
 
 # ---------------------------------------------------------
 # 1. إعدادات الصفحة والتصميم
@@ -62,8 +63,9 @@ api_key = st.secrets.get("GEMINI_API_KEY", "")
 
 with st.sidebar:
     st.header("⚙️ إعدادات التداول")
-    if not api_key:
-        api_key = st.text_input("أدخل مفتاح Gemini API Key:", type="password")
+    user_api_input = st.text_input("🔑 أدخل مفتاح Gemini API Key (اختياري/للتعديل):", type="password")
+    if user_api_input.strip():
+        api_key = user_api_input.strip()
     
     capital_usd = st.number_input(
         "💰 رأس المال للتداول ($ USD):", 
@@ -244,7 +246,44 @@ with tab_silver:
     render_market_view("silver", "الفضة")
 
 # ---------------------------------------------------------
-# 5. الشات بوت والمحادثة (باستخدام google-genai)
+# 5. الاتصال المباشر بـ Gemini عبر HTTP REST API
+# ---------------------------------------------------------
+def generate_gemini_response(prompt_text, key):
+    # تجربة الإصدارات الحديثة والقديمة عبر الاتصال المباشر
+    endpoints = [
+        f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={key}",
+        f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={key}",
+        f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={key}",
+        f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={key}"
+    ]
+    
+    headers = {"Content-Type": "application/json"}
+    payload = {
+        "contents": [{
+            "parts": [{"text": prompt_text}]
+        }]
+    }
+
+    last_error_msg = ""
+
+    for url in endpoints:
+        try:
+            res = requests.post(url, headers=headers, json=payload, timeout=20)
+            if res.status_code == 200:
+                data = res.json()
+                text = data['candidates'][0]['content']['parts'][0]['text']
+                return text, None
+            else:
+                err_data = res.json()
+                msg = err_data.get('error', {}).get('message', res.text)
+                last_error_msg = f"HTTP {res.status_code}: {msg}"
+        except Exception as e:
+            last_error_msg = str(e)
+            
+    return None, last_error_msg
+
+# ---------------------------------------------------------
+# 6. الشات بوت والمحادثة
 # ---------------------------------------------------------
 st.divider()
 st.subheader("💬 محادثة مستشار الذكاء الاصطناعي")
@@ -264,49 +303,30 @@ if user_prompt:
         st.markdown(user_prompt)
 
     if not api_key:
-        bot_response = "⚠️ يُرجى إضافة المفتاح GEMINI_API_KEY في القائمة الجانبية أو في Streamlit Secrets لتفعيل المحادثة."
+        bot_response = "⚠️ يُرجى إدخال مفتاح Gemini API Key في القائمة الجانبية (Sidebar) لتفعيل الشات بوت."
         with st.chat_message("assistant"):
             st.markdown(bot_response)
         st.session_state.chat_history.append({"role": "assistant", "content": bot_response})
     else:
         with st.chat_message("assistant"):
             with st.spinner("جاري تحليل الأسواق وإعداد التوصية..."):
-                try:
-                    client = genai.Client(api_key=api_key)
-                    
-                    prompt_full = f"""
-                    أنت خبير تداول ومستشار مالي لحظي للصفقات السريعة (Scalping).
-                    رأس مال المستخدم المتاح: {capital_usd}$ USD.
-                    
-                    بيانات السوق الحالية اللحظية:
-                    {active_analysis}
-                    
-                    سؤال المستخدم: {user_prompt}
-                    
-                    أجب بوضوح مباشر: هل ينصح بالبيع أم الشراء أم الانتظار الآن؟ وحدد له المبلغ الدقيق للدخول بالدولار وهدف الربح ووقف الخسارة.
-                    """
-                    
-                    available_models = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
-                    response_text = None
-                    last_err = ""
+                prompt_full = f"""
+                أنت خبير تداول ومستشار مالي لحظي للصفقات السريعة (Scalping).
+                رأس مال المستخدم المتاح: {capital_usd}$ USD.
+                
+                بيانات السوق الحالية اللحظية:
+                {active_analysis}
+                
+                سؤال المستخدم: {user_prompt}
+                
+                أجب بوضوح مباشر: هل ينصح بالبيع أم الشراء أم الانتظار الآن؟ وحدد له المبلغ الدقيق للدخول بالدولار وهدف الربح ووقف الخسارة.
+                """
+                
+                ans, err = generate_gemini_response(prompt_full, api_key)
 
-                    for model_name in available_models:
-                        try:
-                            response = client.models.generate_content(
-                                model=model_name,
-                                contents=prompt_full,
-                            )
-                            response_text = response.text
-                            break
-                        except Exception as e:
-                            last_err = str(e)
-                            continue
-
-                    if response_text:
-                        st.markdown(response_text)
-                        st.session_state.chat_history.append({"role": "assistant", "content": response_text})
-                    else:
-                        st.error(f"تعذر الاتصال بالنماذج. التفاصيل: {last_err}")
-
-                except Exception as e:
-                    st.error(f"حدث خطأ في الإعداد: {str(e)}")
+                if ans:
+                    st.markdown(ans)
+                    st.session_state.chat_history.append({"role": "assistant", "content": ans})
+                else:
+                    err_msg = f"❌ تعذر الاتصال بـ Gemini API. السبب:\n`{err}`\n\n📌 إذا كان السبب API_KEY_INVALID، يُرجى جلب مفتاح جديد وإدخاله في الشريط الجانبي."
+                    st.error(err_msg)
