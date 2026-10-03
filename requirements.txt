@@ -4,4 +4,4 @@ pandas
 plotly
 ta
 streamlit-autorefresh
-google-genai
+google-generativeai
