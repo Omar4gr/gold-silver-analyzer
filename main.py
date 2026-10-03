@@ -15,7 +15,6 @@ st.set_page_config(
 # ==========================================
 # 2. الحصول على مفتاح Groq API
 # ==========================================
-# يجلب المفتاح من st.secrets أو من المتغيرات البيئية
 GROQ_API_KEY = st.secrets.get(
     "GROQ_API_KEY",
     os.getenv(
@@ -35,7 +34,7 @@ def ask_ai_advisor(prompt):
         "Content-Type": "application/json",
     }
 
-    # تجهيز سجل المحادثة كـ Messages لـ Llama 3.1
+    # تجهيز سجل المحادثة كـ Messages لـ Llama
     messages = [
         {
             "role": "system",
@@ -56,7 +55,7 @@ def ask_ai_advisor(prompt):
     messages.append({"role": "user", "content": prompt})
 
     payload = {
-        "model": "llama-3.1-8b-instant",  # نموذج سريع وممتاز جداً للاستجابة اللحظية
+        "model": "llama-3.3-70b-versatile",  # تم التحديث إلى النموذج المتاح والمدعوم حالياً
         "messages": messages,
         "temperature": 0.3,
         "max_tokens": 500,
@@ -78,10 +77,8 @@ def ask_ai_advisor(prompt):
 # ==========================================
 st.title("📈 محطة تحليل الذهب والفضة & المستشار الذكي")
 
-# --- قسم الرسم البياني والبيانات (ضع الكود الخاص بالرسم البياني هنا) ---
+# --- قسم الرسم البياني والبيانات ---
 st.subheader("📊 حركة الأسعار")
-# مثال لتوضيح مكان الشارت:
-# st.line_chart(...)
 
 st.markdown("---")
 
