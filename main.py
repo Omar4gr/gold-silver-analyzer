@@ -63,7 +63,7 @@ api_key = st.secrets.get("GEMINI_API_KEY", "")
 
 with st.sidebar:
     st.header("⚙️ إعدادات التداول")
-    user_api_input = st.text_input("🔑 أدخل مفتاح Gemini API Key (اختياري/للتعديل):", type="password")
+    user_api_input = st.text_input("🔑 أدخل مفتاح Gemini API Key (إذا لم تعمل Secrets):", type="password")
     if user_api_input.strip():
         api_key = user_api_input.strip()
     
@@ -246,15 +246,14 @@ with tab_silver:
     render_market_view("silver", "الفضة")
 
 # ---------------------------------------------------------
-# 5. الاتصال المباشر بـ Gemini عبر HTTP REST API
+# 5. الاتصال بـ Gemini عبر HTTP API مع دعم v1 و v1beta
 # ---------------------------------------------------------
 def generate_gemini_response(prompt_text, key):
-    # تجربة الإصدارات الحديثة والقديمة عبر الاتصال المباشر
+    # مسارات مجربة ومضمونة تدعم الحسابات المجانية
     endpoints = [
-        f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={key}",
-        f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={key}",
         f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={key}",
-        f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={key}"
+        f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={key}",
+        f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key={key}",
     ]
     
     headers = {"Content-Type": "application/json"}
@@ -268,14 +267,17 @@ def generate_gemini_response(prompt_text, key):
 
     for url in endpoints:
         try:
-            res = requests.post(url, headers=headers, json=payload, timeout=20)
+            res = requests.post(url, headers=headers, json=payload, timeout=25)
             if res.status_code == 200:
                 data = res.json()
                 text = data['candidates'][0]['content']['parts'][0]['text']
                 return text, None
             else:
-                err_data = res.json()
-                msg = err_data.get('error', {}).get('message', res.text)
+                try:
+                    err_data = res.json()
+                    msg = err_data.get('error', {}).get('message', res.text)
+                except Exception:
+                    msg = res.text
                 last_error_msg = f"HTTP {res.status_code}: {msg}"
         except Exception as e:
             last_error_msg = str(e)
@@ -303,7 +305,7 @@ if user_prompt:
         st.markdown(user_prompt)
 
     if not api_key:
-        bot_response = "⚠️ يُرجى إدخال مفتاح Gemini API Key في القائمة الجانبية (Sidebar) لتفعيل الشات بوت."
+        bot_response = "⚠️ يُرجى التأكد من إضافة مفتاح Gemini API Key في Secrets أو في القائمة الجانبية."
         with st.chat_message("assistant"):
             st.markdown(bot_response)
         st.session_state.chat_history.append({"role": "assistant", "content": bot_response})
@@ -328,5 +330,4 @@ if user_prompt:
                     st.markdown(ans)
                     st.session_state.chat_history.append({"role": "assistant", "content": ans})
                 else:
-                    err_msg = f"❌ تعذر الاتصال بـ Gemini API. السبب:\n`{err}`\n\n📌 إذا كان السبب API_KEY_INVALID، يُرجى جلب مفتاح جديد وإدخاله في الشريط الجانبي."
-                    st.error(err_msg)
+                    st.error(f"❌ تعذر الاتصال بالخدمة. التفاصيل: {err}")
