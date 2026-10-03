@@ -34,7 +34,7 @@ def ask_ai_advisor(prompt):
         "Content-Type": "application/json",
     }
 
-    # تجهيز سجل المحادثة كـ Messages لـ Llama
+    # تجهيز سجل المحادثة كـ Messages
     messages = [
         {
             "role": "system",
@@ -55,7 +55,7 @@ def ask_ai_advisor(prompt):
     messages.append({"role": "user", "content": prompt})
 
     payload = {
-        "model": "llama-3.3-70b-versatile",  # تم التحديث إلى النموذج المتاح والمدعوم حالياً
+        "model": "llama-3.1-8b-instant",  # النموذج الأقوى والأكثر استقراراً وسرعة على Groq
         "messages": messages,
         "temperature": 0.3,
         "max_tokens": 500,
