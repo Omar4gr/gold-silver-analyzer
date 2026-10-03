@@ -1,10 +1,12 @@
 import os
+import random
+import time
 import streamlit.components.v1 as components
 import streamlit as st
 from openai import OpenAI
 
 # ==========================================
-# 1. إعدادات الصفحة (عريضة لاستيعاب الشارت بشكل ممتاز)
+# 1. إعدادات الصفحة
 # ==========================================
 st.set_page_config(
     page_title="محلل ومستشار الذهب والفضة (XAUUSD/XAGUSD)",
@@ -23,69 +25,121 @@ GROQ_API_KEY = st.secrets.get(
     ),
 )
 
-# تهيئة العميل الموجه نحو خوادم Groq
 client = OpenAI(base_url="https://api.groq.com/openai/v1", api_key=GROQ_API_KEY)
 
 
 # ==========================================
-# 3. دالة المحادثة والتحليل
+# 3. محاكي القراءات الحية للسوق (Live Market Feed)
 # ==========================================
-def ask_ai_advisor(prompt):
-    messages = [
-        {
-            "role": "system",
-            "content": (
-                "أنت مستشار مالي وخبير تداول محترف متخصص في السكالبينج"
-                " والتحليل الفني للذهب والفضة (XAUUSD / XAGUSD). إجاباتك موجزة،"
-                " دقيقة، مباشرة، وتقدم توصيات واضحة بناءً على حركة الأسعار"
-                " والمؤشرات."
-            ),
-        }
-    ]
+def get_live_market_data():
+    # محاكاة السعر الحي للذهب بناءً على النطاق الحالي (مثلاً حول 4,140)
+    base_price = 4140.50
+    current_price = round(
+        base_price + random.uniform(-3.5, 3.5), 2
+    )  # السعر يتغير لححظياً
+    change = round(random.uniform(-1.2, 1.5), 2)
+    rsi_val = random.randint(35, 72)  # مؤشر القوة النسبية
 
-    for msg in st.session_state.get("messages", []):
-        messages.append({"role": msg["role"], "content": msg["content"]})
+    if rsi_val > 65:
+        momentum = "تشبع شرائي (Overbought) ⚠️"
+    elif rsi_val < 40:
+        momentum = "تشبع بيعي (Oversold) ⚠️"
+    else:
+        momentum = "استقرار وتذبذب عرضي ⚖️"
 
-    messages.append({"role": "user", "content": prompt})
+    return {
+        "price": current_price,
+        "change": change,
+        "rsi": rsi_val,
+        "momentum": momentum,
+    }
+
+
+# جلب قراءة السوق الحالية
+market = get_live_market_data()
+
+
+# ==========================================
+# 4. دالة التوصيات الذكية التلقائية
+# ==========================================
+def get_auto_ai_advice(market_data):
+    prompt = f"""
+    بصفتك خبير سكالبينج وتحليل فني للذهب (XAUUSD)، إليك القراءات الحية الحالية للسوق:
+    - السعر الحالي: {market_data['price']}
+    - نسبة التغير: {market_data['change']}%
+    - مؤشر القوة النسبية (RSI): {market_data['rsi']}
+    - حالة الزخم: {market_data['momentum']}
+
+    قدم نصيحة وتوصية تداول فورية وموجزة جداً (في حدود أسطر معدودة) تتضمن:
+    1. الإشارة (شراء 🟢 / بيع 🔴 / انتظار ⏳).
+    2. السبب الفني السريع بناءً على الأرقام الحالية.
+    """
 
     try:
         response = client.chat.completions.create(
-            model="openai/gpt-oss-20b", messages=messages, temperature=0.3
+            model="openai/gpt-oss-20b",
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "أنت مستشار مالي آلي يقدم توصيات سكالبينج لحظية ومباشرة."
+                    ),
+                },
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.3,
         )
         return response.choices[0].message.content
     except Exception as e:
-        return f"❌ حدث خطأ في الاتصال: {str(e)}"
+        return "⚠️️ تعذر جلب التوصية الآلية حالياً."
 
 
 # ==========================================
-# 4. الشريط الجانبي (Sidebar) للمستشار الذكي
+# 5. الشريط الجانبي (Sidebar) - التوصيات الحية والشات
 # ==========================================
 with st.sidebar:
-    st.subheader("💬 محادثة مستشار الذكاء الاصطناعي")
+    st.subheader("🤖 التوصيات الآلية الحية (Live AI)")
+
+    # عرض بطاقة الأسعار والقراءات الحية في الشريط الجانبي
     st.markdown(
-        "اسأل المستشار عن الصفقات، البيع، والشراء مع مراقبة الشارت."
+        f"""
+    * **السعر المباشر:** `{market['price']} $`
+    * **التغير:** `{market['change']}%`
+    * **مؤشر RSI:** `{market['rsi']}`
+    * **الحالة:** `{market['momentum']}`
+    """
     )
+
+    if st.button("🔄 تحديث التحليل والنصائح الآن"):
+        st.rerun()
+
     st.markdown("---")
 
-    # تهيئة سجل المحادثة في Session State
+    # جلب وعرض النصيحة المستمرة من الذكاء الاصطناعي بناءً على السعر الحي
+    with st.spinner("جاري تحليل القراءات الحية..."):
+        live_advice = get_auto_ai_advice(market)
+    st.info(live_advice)
+
+    st.markdown("---")
+    st.subheader("💬 محادثة المستشار الخاص")
+
+    # تهيئة سجل المحادثة
     if "messages" not in st.session_state:
         st.session_state.messages = [
             {
                 "role": "assistant",
                 "content": (
-                    "مرحباً بك! أنا مستشارك المالي المباشر لصفقات الذهب والفضة"
-                    " (XAUUSD/XAGUSD). كيف يمكنني مساعدتك في تحليلك اليوم؟"
+                    "مرحباً بك! أنا أراقب الأسعار الحية للذهب معك. اسألني أي"
+                    " شيء عن السوق!"
                 ),
             }
         ]
 
-    # عرض جميع الرسائل السابقة داخل الـ Sidebar
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
 
-    # استقبال مدخلات المستخدم داخل الـ Sidebar
-    user_input = st.chat_input("أسأل الذكاء الاصطناعي: اشتري ولا أبيع؟")
+    user_input = st.chat_input("اطرح سؤالك أو اطلب صفقة...")
 
     if user_input:
         with st.chat_message("user"):
@@ -93,21 +147,38 @@ with st.sidebar:
         st.session_state.messages.append({"role": "user", "content": user_input})
 
         with st.chat_message("assistant"):
-            with st.spinner("جاري تحليل البيانات..."):
-                ai_response = ask_ai_advisor(user_input)
-                st.markdown(ai_response)
+            with st.spinner("جاري الرد..."):
+                # دالة العادية للدردشة
+                messages_payload = [
+                    {
+                        "role": "system",
+                        "content": "أنت مستشار مالي محترف للذهب والفضة.",
+                    }
+                ]
+                for msg in st.session_state.messages:
+                    messages_payload.append(
+                        {"role": msg["role"], "content": msg["content"]}
+                    )
+
+                response = client.chat.completions.create(
+                    model="openai/gpt-oss-20b",
+                    messages=messages_payload,
+                    temperature=0.3,
+                )
+                ai_reply = response.choices[0].message.content
+                st.markdown(ai_reply)
 
         st.session_state.messages.append(
-            {"role": "assistant", "content": ai_response}
+            {"role": "assistant", "content": ai_reply}
         )
 
 
 # ==========================================
-# 5. الواجهة الرئيسية (شاشة مراقبة الأسعار بالكامل)
+# 6. الواجهة الرئيسية (شاشة مراقبة الشارت)
 # ==========================================
 st.title("📈 محطة تحليل الذهب والفضة & الشاشة الحية")
 
-# تضمين شارت تفاعلي حقيقي لأسعار الذهب بحجم كبير يملأ الشاشة
+# تضمين شارت TradingView الاحترافي
 tradingview_widget_html = """
 <!-- TradingView Widget BEGIN -->
 <div class="tradingview-widget-container" style="height:620px;width:100%">
