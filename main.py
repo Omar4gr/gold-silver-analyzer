@@ -30,7 +30,6 @@ client = OpenAI(base_url="https://api.groq.com/openai/v1", api_key=GROQ_API_KEY)
 # 3. دالة المحادثة والتحليل
 # ==========================================
 def ask_ai_advisor(prompt):
-    # تجهيز سجل المحادثة
     messages = [
         {
             "role": "system",
@@ -49,9 +48,11 @@ def ask_ai_advisor(prompt):
     messages.append({"role": "user", "content": prompt})
 
     try:
-        # استخدام النموذج القياسي المستقر والثابت دائماً على Groq
+        # استخدام النموذج الإنتاجي النشط حالياً على Groq
         response = client.chat.completions.create(
-            model="llama3-70b-8192", messages=messages, temperature=0.3
+            model="llama-3.3-70b-versatile",
+            messages=messages,
+            temperature=0.3,
         )
         return response.choices[0].message.content
     except Exception as e:
