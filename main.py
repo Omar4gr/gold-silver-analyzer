@@ -48,9 +48,9 @@ def ask_ai_advisor(prompt):
     messages.append({"role": "user", "content": prompt})
 
     try:
-        # استخدام النموذج الأكثر استقراراً وسرعة المعتمد حالياً على Groq
+        # استخدام النموذج الإنتاجي النشط والمستقر تماماً حالياً
         response = client.chat.completions.create(
-            model="llama-3.1-8b-instant", messages=messages, temperature=0.3
+            model="openai/gpt-oss-20b", messages=messages, temperature=0.3
         )
         return response.choices[0].message.content
     except Exception as e:
