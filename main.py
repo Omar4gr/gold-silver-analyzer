@@ -5,7 +5,7 @@ import plotly.graph_objects as go
 from ta.trend import SMAIndicator, EMAIndicator
 from ta.momentum import RSIIndicator, StochasticOscillator
 from streamlit_autorefresh import st_autorefresh
-from google import genai
+import google.generativeai as genai
 
 # ---------------------------------------------------------
 # 1. إعدادات الصفحة والتصميم
@@ -63,7 +63,7 @@ api_key = st.secrets.get("GEMINI_API_KEY", "")
 with st.sidebar:
     st.header("⚙️ إعدادات التداول")
     if not api_key:
-        api_key = st.text_input("أدخل مفتاح Gemini API Key (اختياري):", type="password")
+        api_key = st.text_input("أدخل مفتاح Gemini API Key:", type="password")
     
     capital_usd = st.number_input(
         "💰 رأس المال للتداول ($ USD):", 
@@ -264,45 +264,34 @@ if user_prompt:
         st.markdown(user_prompt)
 
     if not api_key:
-        bot_response = "⚠️ يُرجى إضافة المفتاح GEMINI_API_KEY في Streamlit Secrets أو في القائمة الجانبية لتفعيل الرد التلقائي."
+        bot_response = "⚠️ يُرجى إضافة المفتاح GEMINI_API_KEY في القائمة الجانبية أو في Streamlit Secrets لتفعيل المحادثة."
         with st.chat_message("assistant"):
             st.markdown(bot_response)
         st.session_state.chat_history.append({"role": "assistant", "content": bot_response})
     else:
         with st.chat_message("assistant"):
             with st.spinner("جاري تحليل الأسواق وإعداد التوصية..."):
-                client = genai.Client(api_key=api_key)
-                prompt_full = f"""
-                أنت خبير تداول ومستشار مالي لحظي للصفقات السريعة (Scalping).
-                رأس مال المستخدم المتاح: {capital_usd}$ USD.
-                
-                بيانات السوق الحالية اللحظية:
-                {active_analysis}
-                
-                سؤال المستخدم: {user_prompt}
-                
-                أجب بوضوح مباشر: هل ينصح بالبيع أم الشراء أم الانتظار الآن؟ وحدد له المبلغ الدقيق للدخول بالدولار وهدف الربح ووقف الخسارة.
-                """
-                
-                # تجربة عدة نماذج متوافرة لتجنب أي توقف
-                candidate_models = ['gemini-2.5-flash', 'gemini-1.5-flash', 'gemini-2.0-flash']
-                bot_response = None
-                
-                for model_name in candidate_models:
-                    try:
-                        response = client.models.generate_content(
-                            model=model_name,
-                            contents=prompt_full,
-                        )
-                        if response and response.text:
-                            bot_response = response.text
-                            break
-                    except Exception:
-                        continue
-                
-                if bot_response:
+                try:
+                    genai.configure(api_key=api_key)
+                    prompt_full = f"""
+                    أنت خبير تداول ومستشار مالي لحظي للصفقات السريعة (Scalping).
+                    رأس مال المستخدم المتاح: {capital_usd}$ USD.
+                    
+                    بيانات السوق الحالية اللحظية:
+                    {active_analysis}
+                    
+                    سؤال المستخدم: {user_prompt}
+                    
+                    أجب بوضوح مباشر: هل ينصح بالبيع أم الشراء أم الانتظار الآن؟ وحدد له المبلغ الدقيق للدخول بالدولار وهدف الربح ووقف الخسارة.
+                    """
+                    
+                    # الاستدعاء المباشر لأكثر النماذج استقراراً
+                    model = genai.GenerativeModel('gemini-1.5-flash')
+                    response = model.generate_content(prompt_full)
+                    
+                    bot_response = response.text
                     st.markdown(bot_response)
                     st.session_state.chat_history.append({"role": "assistant", "content": bot_response})
-                else:
-                    err_msg = "تعذر الاتصال بالنموذج حالياً، يرجى التأكد من صلاحية مفتاح API Key والمحاولة لاحقاً."
-                    st.error(err_msg)
+                except Exception as e:
+                    err_detail = str(e)
+                    st.error(f"حدث خطأ أثناء الاتصال بالنموذج: {err_detail}")
