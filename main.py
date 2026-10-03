@@ -5,7 +5,7 @@ import plotly.graph_objects as go
 from ta.trend import SMAIndicator, EMAIndicator
 from ta.momentum import RSIIndicator, StochasticOscillator
 from streamlit_autorefresh import st_autorefresh
-import google.generativeai as genai
+from google import genai
 
 # ---------------------------------------------------------
 # 1. إعدادات الصفحة والتصميم
@@ -244,7 +244,7 @@ with tab_silver:
     render_market_view("silver", "الفضة")
 
 # ---------------------------------------------------------
-# 5. الشات بوت والمحادثة
+# 5. الشات بوت والمحادثة (باستخدام google-genai)
 # ---------------------------------------------------------
 st.divider()
 st.subheader("💬 محادثة مستشار الذكاء الاصطناعي")
@@ -272,7 +272,8 @@ if user_prompt:
         with st.chat_message("assistant"):
             with st.spinner("جاري تحليل الأسواق وإعداد التوصية..."):
                 try:
-                    genai.configure(api_key=api_key)
+                    client = genai.Client(api_key=api_key)
+                    
                     prompt_full = f"""
                     أنت خبير تداول ومستشار مالي لحظي للصفقات السريعة (Scalping).
                     رأس مال المستخدم المتاح: {capital_usd}$ USD.
@@ -285,13 +286,27 @@ if user_prompt:
                     أجب بوضوح مباشر: هل ينصح بالبيع أم الشراء أم الانتظار الآن؟ وحدد له المبلغ الدقيق للدخول بالدولار وهدف الربح ووقف الخسارة.
                     """
                     
-                    # الاستدعاء المباشر لأكثر النماذج استقراراً
-                    model = genai.GenerativeModel('gemini-1.5-flash')
-                    response = model.generate_content(prompt_full)
-                    
-                    bot_response = response.text
-                    st.markdown(bot_response)
-                    st.session_state.chat_history.append({"role": "assistant", "content": bot_response})
+                    available_models = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
+                    response_text = None
+                    last_err = ""
+
+                    for model_name in available_models:
+                        try:
+                            response = client.models.generate_content(
+                                model=model_name,
+                                contents=prompt_full,
+                            )
+                            response_text = response.text
+                            break
+                        except Exception as e:
+                            last_err = str(e)
+                            continue
+
+                    if response_text:
+                        st.markdown(response_text)
+                        st.session_state.chat_history.append({"role": "assistant", "content": response_text})
+                    else:
+                        st.error(f"تعذر الاتصال بالنماذج. التفاصيل: {last_err}")
+
                 except Exception as e:
-                    err_detail = str(e)
-                    st.error(f"حدث خطأ أثناء الاتصال بالنموذج: {err_detail}")
+                    st.error(f"حدث خطأ في الإعداد: {str(e)}")
