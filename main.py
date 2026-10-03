@@ -14,7 +14,7 @@ st.set_page_config(
     page_title="محلل الأسواق الذكي",
     page_icon="📈",
     layout="wide",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="expanded"
 )
 
 # تحديث تلقائي كل 30 ثانية
@@ -31,46 +31,63 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("📈 محلل الأسواق الذكي")
-st.caption("تحليل فني وتوصيات ذكية لحظية للذهب والفضة (XAUUSD / XAGUSD)")
+st.caption("تحليل فني وتوصيات ذكية لحظية مع إشعارات التليجرام")
 
 # ---------------------------------------------------------
-# 2. دالة جلب البيانات الفورية (Spot) المباشرة
+# 2. إعدادات الإشعارات (الشريط الجانبي)
+# ---------------------------------------------------------
+with st.sidebar:
+    st.header("🔔 إعدادات الإشعارات (Telegram)")
+    enable_notifications = st.checkbox("تفعيل الإشعارات الفورية", value=False)
+    telegram_bot_token = st.text_input("Bot Token", type="password", placeholder="123456789:ABCDefgh...")
+    telegram_chat_id = st.text_input("Chat ID", type="password", placeholder="987654321")
+
+# دالة إرسال إشعار عبر التليجرام
+def send_telegram_notification(message):
+    if enable_notifications and telegram_bot_token and telegram_chat_id:
+        url = f"https://api.telegram.org/bot{telegram_bot_token}/sendMessage"
+        payload = {
+            "chat_id": telegram_chat_id,
+            "text": message,
+            "parse_mode": "Markdown"
+        }
+        try:
+            requests.post(url, data=payload, timeout=5)
+        except Exception as e:
+            st.sidebar.error(f"فشل إرسال الإشعار: {e}")
+
+# ---------------------------------------------------------
+# 3. دالة جلب البيانات الفورية والتحليل الفني
 # ---------------------------------------------------------
 @st.cache_data(ttl=15)
 def get_market_data(symbol_type):
-    # محاولة جلب البيانات الفورية Spot عبر yfinance بتعديل الترويسة (User-Agent) لتفادي الحظر
     symbol = "XAUUSD=X" if symbol_type == "gold" else "XAGUSD=X"
+    fallback_symbol = "GC=F" if symbol_type == "gold" else "SI=F"
     
     df = pd.DataFrame()
     last_error = ""
 
     try:
-        # استخدام yf.Ticker مع فترات وسجلات أكثر استقراراً
-        ticker_obj = yf.Ticker(symbol)
-        data = ticker_obj.history(period="5d", interval="5m")
-        
+        data = yf.Ticker(symbol).history(period="5d", interval="5m")
         if not data.empty and len(data) > 5:
             df = data
         else:
-            data_daily = ticker_obj.history(period="1mo", interval="1d")
+            data_daily = yf.Ticker(symbol).history(period="1mo", interval="1d")
             if not data_daily.empty:
                 df = data_daily
     except Exception as e:
         last_error = str(e)
 
-    # إذا استمر الحظر، نجلب السعر الفوري المباشر عبر مصدر مفتوح بديل
     if df.empty:
         try:
-            # مصدر بديل مباشر للأسعار الفورية Spot
-            alt_ticker = "GC=F" if symbol_type == "gold" else "SI=F"
-            data = yf.Ticker(alt_ticker).history(period="5d", interval="5m")
+            data = yf.Ticker(fallback_symbol).history(period="5d", interval="5m")
             if not data.empty:
                 df = data
         except Exception as e:
             last_error = str(e)
 
     if df.empty:
-        return None, None, f"فشل جلب البيانات. يرجى المحاولة لاحقاً ({last_error})"
+        return None, None, f"فشل جلب البيانات. ({last_error})"
 
     try:
         df = df.dropna(subset=['Close'])
@@ -79,14 +96,12 @@ def get_market_data(symbol_type):
         window_sma = min(20, len(df))
         window_ema = min(50, len(df))
 
-        # حساب المؤشرات الفنية
         df['SMA_20'] = SMAIndicator(close=close, window=window_sma).sma_indicator()
         df['EMA_50'] = EMAIndicator(close=close, window=window_ema).ema_indicator()
         df['RSI'] = RSIIndicator(close=close, window=14).rsi()
         
         macd_obj = MACD(close=close)
         df['MACD'] = macd_obj.macd()
-        df['MACD_Signal'] = macd_obj.macd_signal()
 
         latest = df.iloc[-1]
         prev = df.iloc[-2] if len(df) > 1 else latest
@@ -128,8 +143,11 @@ def get_market_data(symbol_type):
         return None, None, str(e)
 
 # ---------------------------------------------------------
-# 3. واجهة العرض
+# 4. واجهة العرض مع نظام تتبع التوصيات
 # ---------------------------------------------------------
+if 'last_signal' not in st.session_state:
+    st.session_state.last_signal = {'gold': None, 'silver': None}
+
 tab_gold, tab_silver = st.tabs(["🥇 الذهب (XAUUSD)", "🥈 الفضة (XAGUSD)"])
 
 def render_market_view(symbol_type, name):
@@ -148,6 +166,20 @@ def render_market_view(symbol_type, name):
         st.error(rec_text)
     else:
         st.warning(rec_text)
+
+    # فحص التوصية وإرسال الإشعار عند تغير الإشارة فقط
+    current_rec = analysis['recommendation']
+    if current_rec in ["شراء (Buy)", "بيع (Sell)"]:
+        if st.session_state.last_signal[symbol_type] != current_rec:
+            st.session_state.last_signal[symbol_type] = current_rec
+            
+            msg = f"🚨 *تنبيه جديد - {name}*\n\n" \
+                  f"📊 *التوصية:* {current_rec}\n" \
+                  f"💵 *السعر الحالي:* ${analysis['price']:.2f}\n" \
+                  f"📉 *مؤشر RSI:* {analysis['rsi']:.1f}\n\n" \
+                  f"📝 {analysis['desc']}"
+            
+            send_telegram_notification(msg)
 
     # الرسم البياني
     fig = go.Figure()
