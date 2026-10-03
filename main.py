@@ -274,30 +274,32 @@ if user_prompt:
     else:
         with st.chat_message("assistant"):
             with st.spinner("جاري تحليل الأسواق وإعداد التوصية..."):
-                try:
-                    context_data = f"""
-                    أنت خبير تداول ومستشار مالي لحظي للصفقات السريعة (Scalping).
-                    رأس مال المستخدم المتاح: {capital_usd}$ USD.
-                    
-                    بيانات السوق الحالية اللحظية:
-                    {active_analysis}
-                    
-                    أجب بوضوح مباشر على سؤال المستخدم: هل ينصح بالبيع أم الشراء أم الانتظار الآن؟ وحدد له المبلغ الدقيق للدخول بالدولار وهدف الربح ووقف الخسارة.
-                    """
-                    
-                    # استخدام اسم الموديل المستقر الحديث
-                    model = genai.GenerativeModel("gemini-2.5-flash")
-                    response = model.generate_content([context_data, user_prompt])
-                    bot_response = response.text
-                    st.markdown(bot_response)
-                    st.session_state.chat_history.append({"role": "assistant", "content": bot_response})
-                except Exception as e:
-                    # آلية احتياطية في حال تعذر اسم الموديل الأول
+                context_data = f"""
+                أنت خبير تداول ومستشار مالي لحظي للصفقات السريعة (Scalping).
+                رأس مال المستخدم المتاح: {capital_usd}$ USD.
+                
+                بيانات السوق الحالية اللحظية:
+                {active_analysis}
+                
+                أجب بوضوح مباشر على سؤال المستخدم: هل ينصح بالبيع أم الشراء أم الانتظار الآن؟ وحدد له المبلغ الدقيق للدخول بالدولار وهدف الربح ووقف الخسارة.
+                """
+                
+                # قائمة بالنماذج المتاحة للتجربة التلقائية
+                candidate_models = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-pro"]
+                response_text = None
+                
+                for m_name in candidate_models:
                     try:
-                        model = genai.GenerativeModel("gemini-2.0-flash")
+                        model = genai.GenerativeModel(m_name)
                         response = model.generate_content([context_data, user_prompt])
-                        bot_response = response.text
-                        st.markdown(bot_response)
-                        st.session_state.chat_history.append({"role": "assistant", "content": bot_response})
-                    except Exception as e2:
-                        st.error(f"حدث خطأ أثناء الاتصال بالمساعد: {e2}")
+                        if response and response.text:
+                            response_text = response.text
+                            break
+                    except Exception:
+                        continue
+                
+                if response_text:
+                    st.markdown(response_text)
+                    st.session_state.chat_history.append({"role": "assistant", "content": response_text})
+                else:
+                    st.error("تعذر الاتصال بالنموذج حالياً، يرجى المحاولة لاحقاً.")
