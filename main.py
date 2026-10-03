@@ -3,11 +3,11 @@ import yfinance as yf
 import pandas as pd
 import plotly.graph_objects as go
 from ta.trend import SMAIndicator, EMAIndicator, MACD
-from ta.momentum import RSIIndicator
+from ta.momentum import RSIIndicator, StochasticOscillator
 from streamlit_autorefresh import st_autorefresh
 
 # ---------------------------------------------------------
-# 1. إعدادات الصفحة والتصميم المخصص للهواتف والـ APK
+# 1. إعدادات الصفحة والتصميم
 # ---------------------------------------------------------
 st.set_page_config(
     page_title="محلل الأسواق الذكي",
@@ -19,16 +19,13 @@ st.set_page_config(
 # تحديث تلقائي كل 30 ثانية
 st_autorefresh(interval=30000, key="datarefresh")
 
-# تنسيق CSS احترافي لإلغاء الحواف المزعجة وإخفاء القوائم الجانبية
 st.markdown("""
     <style>
-    /* إخفاء القائمة الجانبية والشريط العلوي الافتراضي لـ Streamlit */
     [data-testid="stSidebar"] { display: none; }
     [data-testid="collapsedControl"] { display: none; }
     header { visibility: hidden; height: 0px !important; }
     footer { visibility: hidden; height: 0px !important; }
     
-    /* ضبط الحواف والمساحات الخارجية لملء الشاشة بالكامل */
     .block-container {
         padding-top: 0.8rem !important;
         padding-bottom: 0.5rem !important;
@@ -37,7 +34,6 @@ st.markdown("""
         max-width: 100% !important;
     }
     
-    /* تحسين شكل العنوان والعناوين الفرعية */
     .main-title {
         text-align: center;
         font-size: 1.6rem;
@@ -51,34 +47,43 @@ st.markdown("""
         margin-bottom: 0.8rem;
     }
     
-    /* تنسيق أزرار التبويب Tabs */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 8px;
-        justify-content: center;
-    }
-    .stTabs [data-baseweb="tab"] {
-        padding: 8px 16px;
-        border-radius: 8px;
-        font-weight: bold;
-    }
+    .stTabs [data-baseweb="tab-list"] { gap: 8px; justify-content: center; }
+    .stTabs [data-baseweb="tab"] { padding: 8px 16px; border-radius: 8px; font-weight: bold; }
     
-    /* تحسين شكل التوصية */
-    .stAlert {
-        font-size: 0.9rem !important;
-        border-radius: 10px !important;
-        padding: 10px !important;
-    }
+    .stAlert { font-size: 0.9rem !important; border-radius: 10px !important; padding: 10px !important; }
     </style>
 """, unsafe_allow_html=True)
 
-st.markdown('<div class="main-title">📈 محلل الأسواق الذكي</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-title">تحليل فني وتوصيات ذكية لحظية للذهب والفضة</div>', unsafe_allow_html=True)
+st.markdown('<div class="main-title">📈 محلل الصفقات السريعة</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-title">توصيات لحظية وإدارة رأس المال بالدينار العراقي (IQD)</div>', unsafe_allow_html=True)
 
 # ---------------------------------------------------------
-# 2. دالة جلب البيانات والتحليل الفني
+# 2. إدخال رأس المال وسعر الصرف
+# ---------------------------------------------------------
+col_cap1, col_cap2 = st.columns([2, 1])
+
+with col_cap1:
+    capital_iqd = st.number_input(
+        "💰 كم تملك رأس مال لللتداول؟ (بالدينار العراقي):", 
+        min_value=100000.0, 
+        value=1000000.0, 
+        step=50000.0,
+        format="%.0f"
+    )
+
+with col_cap2:
+    usd_iqd_rate = st.number_input(
+        "💱 سعر صرف $1 بالدينار:", 
+        min_value=1000.0, 
+        value=1500.0, 
+        step=10.0
+    )
+
+# ---------------------------------------------------------
+# 3. دالة جلب البيانات والتحليل اللحظي
 # ---------------------------------------------------------
 @st.cache_data(ttl=15)
-def get_market_data(symbol_type):
+def get_market_data(symbol_type, capital_in_iqd, exchange_rate):
     symbol = "XAUUSD=X" if symbol_type == "gold" else "XAGUSD=X"
     fallback_symbol = "GC=F" if symbol_type == "gold" else "SI=F"
     
@@ -86,13 +91,13 @@ def get_market_data(symbol_type):
     last_error = ""
 
     try:
-        data = yf.Ticker(symbol).history(period="5d", interval="5m")
+        data = yf.Ticker(symbol).history(period="1d", interval="1m")
         if not data.empty and len(data) > 5:
             df = data
         else:
-            data_daily = yf.Ticker(symbol).history(period="1mo", interval="1d")
-            if not data_daily.empty:
-                df = data_daily
+            data_fallback = yf.Ticker(fallback_symbol).history(period="5d", interval="5m")
+            if not data_fallback.empty:
+                df = data_fallback
     except Exception as e:
         last_error = str(e)
 
@@ -111,49 +116,95 @@ def get_market_data(symbol_type):
         df = df.dropna(subset=['Close'])
         close = df['Close']
 
-        window_sma = min(20, len(df))
-        window_ema = min(50, len(df))
-
-        df['SMA_20'] = SMAIndicator(close=close, window=window_sma).sma_indicator()
-        df['EMA_50'] = EMAIndicator(close=close, window=window_ema).ema_indicator()
+        # المؤشرات الفنية للتحليل السريع (Scalping)
+        df['SMA_20'] = SMAIndicator(close=close, window=min(20, len(df))).sma_indicator()
+        df['EMA_50'] = EMAIndicator(close=close, window=min(50, len(df))).ema_indicator()
         df['RSI'] = RSIIndicator(close=close, window=14).rsi()
         
-        macd_obj = MACD(close=close)
-        df['MACD'] = macd_obj.macd()
+        stoch = StochasticOscillator(high=df['High'], low=df['Low'], close=close, window=14, smooth_window=3)
+        df['Stoch_K'] = stoch.stoch()
 
         latest = df.iloc[-1]
         prev = df.iloc[-2] if len(df) > 1 else latest
 
-        current_price = float(latest['Close'])
-        price_change = float(current_price - prev['Close'])
+        current_price_usd = float(latest['Close'])
+        price_change_usd = float(current_price_usd - prev['Close'])
 
-        # خوارزمية حساب التوصية
+        # حساب التوصية والزخم اللحظي
         score = 0
-        if current_price > latest.get('SMA_20', current_price) and current_price > latest.get('EMA_50', current_price):
-            score += 2
-        elif current_price < latest.get('SMA_20', current_price) and current_price < latest.get('EMA_50', current_price):
-            score -= 2
+        if current_price_usd > latest.get('SMA_20', current_price_usd): score += 1
+        else: score -= 1
 
         rsi_val = latest.get('RSI', 50)
-        if rsi_val < 30:
-            score += 3
-        elif rsi_val > 70:
-            score -= 3
+        if rsi_val < 35: score += 2  # تشبع بيعي
+        elif rsi_val > 65: score -= 2 # تشبع شرائي
 
+        stoch_k = latest.get('Stoch_K', 50)
+        if stoch_k < 20: score += 2
+        elif stoch_k > 80: score -= 2
+
+        # تحديد نسبة المخاطرة والتوصية بناءً على رأس المال
         if score >= 3:
-            rec, color, desc = "شراء (Buy)", "green", "الاتجاه صاعد مع إشارات إيجابية قوية."
+            rec = "شراء سريع (Scalp Buy 🟢)"
+            color = "green"
+            desc = "صعود لحظي متوقع! فرصة دخول سريعة."
+            invest_ratio = 0.08  # 8% من رأس المال
+            tp_perc = 0.005      # ربح 0.5%
+            sl_perc = 0.003      # وقف خسارة 0.3%
         elif score <= -3:
-            rec, color, desc = "بيع (Sell)", "red", "الاتجاه هابط مع ضغط بيعي."
+            rec = "بيع سريع (Scalp Sell 🔴)"
+            color = "red"
+            desc = "هبوط لحظي متوقع! ضغط بيعي قوي."
+            invest_ratio = 0.08  # 8%
+            tp_perc = 0.005
+            sl_perc = 0.003
+        elif score in [1, 2]:
+            rec = "شراء خفيف (Weak Buy 🟡)"
+            color = "orange"
+            desc = "إشارة صعود بسيطة، ينصح بالدخول بمبلغ صغير."
+            invest_ratio = 0.03  # 3% فقط
+            tp_perc = 0.003
+            sl_perc = 0.002
+        elif score in [-1, -2]:
+            rec = "بيع خفيف (Weak Sell 🟡)"
+            color = "orange"
+            desc = "إشارة هبوط بسيطة، دخول بحذر بمبلغ صغير."
+            invest_ratio = 0.03
+            tp_perc = 0.003
+            sl_perc = 0.002
         else:
-            rec, color, desc = "محايد (Hold)", "orange", "السوق في حالة تذبذب أو مغلق حالياً."
+            rec = "انتظار (Hold ⚪)"
+            color = "orange"
+            desc = "السوق غير واضح، لا تجازف برأس مالك الآن."
+            invest_ratio = 0.0
+            tp_perc, sl_perc = 0.0, 0.0
+
+        # الحسابات المليّة بالدينار العراقي (IQD)
+        invest_amount_iqd = capital_in_iqd * invest_ratio
+        expected_profit_iqd = invest_amount_iqd * tp_perc
+        expected_loss_iqd = invest_amount_iqd * sl_perc
+
+        # أسعار الأهداف بالدولار
+        if "شراء" in rec:
+            tp_usd = current_price_usd * (1 + tp_perc)
+            sl_usd = current_price_usd * (1 - sl_perc)
+        else:
+            tp_usd = current_price_usd * (1 - tp_perc)
+            sl_usd = current_price_usd * (1 + sl_perc)
 
         analysis = {
-            'price': current_price,
-            'change': price_change,
-            'rsi': rsi_val,
+            'price_usd': current_price_usd,
+            'change_usd': price_change_usd,
+            'price_iqd': current_price_usd * exchange_rate,
             'recommendation': rec,
             'color': color,
-            'desc': desc
+            'desc': desc,
+            'invest_amount_iqd': invest_amount_iqd,
+            'invest_percent': invest_ratio * 100,
+            'expected_profit_iqd': expected_profit_iqd,
+            'expected_loss_iqd': expected_loss_iqd,
+            'tp_usd': tp_usd,
+            'sl_usd': sl_usd
         }
 
         return df, analysis, None
@@ -161,34 +212,46 @@ def get_market_data(symbol_type):
         return None, None, str(e)
 
 # ---------------------------------------------------------
-# 3. عرض البيانات والشاشات
+# 4. واجهة العرض
 # ---------------------------------------------------------
 tab_gold, tab_silver = st.tabs(["🥇 الذهب (XAUUSD)", "🥈 الفضة (XAGUSD)"])
 
 def render_market_view(symbol_type, name):
-    df, analysis, error = get_market_data(symbol_type)
+    df, analysis, error = get_market_data(symbol_type, capital_iqd, usd_iqd_rate)
     
     if error or df is None:
         st.error(f"تعذر جلب بيانات {name}: {error}")
         return
 
-    # عرض السعر والتغير
-    st.metric(
-        label=f"سعر {name} الحالي (Spot)", 
-        value=f"${analysis['price']:.2f}", 
-        delta=f"{analysis['change']:+.2f}"
-    )
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric(
+            label=f"سعر {name} (أونصة)", 
+            value=f"${analysis['price_usd']:.2f}", 
+            delta=f"{analysis['change_usd']:+.2f} $"
+        )
+    with col2:
+        st.metric(
+            label="مبلغ الصفقة المقترح", 
+            value=f"{analysis['invest_amount_iqd']:,.0f} د.ع", 
+            delta=f"{analysis['invest_percent']:.1f}% من رأس المال"
+        )
 
-    # عرض مربع التوصية
-    rec_text = f"**توصية الذكاء الاصطناعي:** {analysis['recommendation']}\n\n_{analysis['desc']}_"
+    # تفاصيل الصفقة بالدينار والأهداف
+    rec_box = f"### {analysis['recommendation']}\n\n" \
+              f"📌 **التحليل اللحظي:** {analysis['desc']}\n\n" \
+              f"💵 **المبلغ الموصى بالدخول به:** `{analysis['invest_amount_iqd']:,.0f} دينار عراقي`\n\n" \
+              f"🎯 **الربح المتوقع بالصفقة:** `+{analysis['expected_profit_iqd']:,.0f} د.ع` (عند سعر ${analysis['tp_usd']:.2f})\n\n" \
+              f"🛑 **أقصى خسارة مسموح بها:** `-{analysis['expected_loss_iqd']:,.0f} د.ع` (عند سعر ${analysis['sl_usd']:.2f})"
+
     if analysis['color'] == "green":
-        st.success(rec_text)
+        st.success(rec_box)
     elif analysis['color'] == "red":
-        st.error(rec_text)
+        st.error(rec_box)
     else:
-        st.warning(rec_text)
+        st.warning(rec_box)
 
-    # الرسم البياني المخصص للتطبيقات المحمولة
+    # الرسم البياني
     fig = go.Figure()
     fig.add_trace(go.Candlestick(
         x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name="السعر"
@@ -200,7 +263,7 @@ def render_market_view(symbol_type, name):
 
     fig.update_layout(
         margin=dict(l=0, r=0, t=10, b=0),
-        height=380,
+        height=340,
         xaxis_rangeslider_visible=False,
         template="plotly_dark",
         showlegend=False
@@ -213,7 +276,6 @@ with tab_gold:
 with tab_silver:
     render_market_view("silver", "الفضة")
 
-# زر التحديث في الأسفل بصورة مدمجة
-if st.button("🔄 تحديث الأسعار والتحليل"):
+if st.button("🔄 تحديث التحليل ورأس المال"):
     st.cache_data.clear()
     st.rerun()
