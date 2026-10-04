@@ -3,9 +3,15 @@ import random
 import requests
 import streamlit.components.v1 as components
 import streamlit as st
+from streamlit_autorefresh import st_autorefresh
 
 # ==========================================
-# 0. إعدادات تيليجرام للإشعارات الفورية
+# 0. إعدادات التحديث التلقائي (كل ثانية واحدة 1000ms)
+# ==========================================
+st_autorefresh(interval=1000, key="live_gold_ticker")
+
+# ==========================================
+# 1. إعدادات تيليجرام للإشعارات الفورية
 # ==========================================
 TELEGRAM_BOT_TOKEN = "ضع_التوكن_هنا"  # ضع توكن بوت تيليجرام الخاص بك هنا
 TELEGRAM_CHAT_ID = "ضع_الآيدي_هنا"  # ضع الآيدي الخاص بك هنا
@@ -30,61 +36,58 @@ def send_telegram_notification(message):
 
 
 # ==========================================
-# 1. إعدادات الصفحة
+# 2. إعدادات الصفحة
 # ==========================================
 st.set_page_config(
     page_title="محلل ومستشار الذهب والفضة", page_icon="📈", layout="wide"
 )
 
 # ==========================================
-# 2. محاكي الأسعار الذكي للسكالبينج (متزامن وحي)
+# 3. محاكي الأسعار اللحظي (يتحدث كل ثانية)
 # ==========================================
 if "gold_price" not in st.session_state:
-    st.session_state.gold_price = 4145.21
+    st.session_state.gold_price = 4144.95
     st.session_state.gold_change = 0.11
 
-# محاكاة حركة سعرية بسيطة عند كل تحديث للصفحة
-price_step = round(random.uniform(-0.8, 0.9), 2)
+# تحديث طفيف للسعر مع كل ثانية ليعكس نبض السوق الحي
+price_step = round(random.uniform(-0.3, 0.35), 2)
 st.session_state.gold_price = round(
     st.session_state.gold_price + price_step, 2
 )
 st.session_state.gold_change = round(
-    st.session_state.gold_change + (price_step * 0.02), 2
+    st.session_state.gold_change + (price_step * 0.01), 2
 )
 
 current_price = st.session_state.gold_price
 price_change = st.session_state.gold_change
 
 # ==========================================
-# 3. نظام توليد توصيات السكالبينج (شراء / بيع / انتظار)
+# 4. نظام توليد توصيات السكالبينج (شراء / بيع / انتظار)
 # ==========================================
-if price_change > 0.3:
+if price_change > 0.2:
     scalping_signal = "شراء (BUY) 🟢"
-    signal_color = "green"
     scalping_advice = (
-        "الخميرة صعودية قوية تدعم صفقات الشراء (Scalping). الهدف القادم أعلى بـ"
-        " 1.5 - 3 دولار مع وضع وقف خسارة قريب."
+        "زخم صعودي لحظي يدعم صفقات الشراء السريعة (Scalping). الهدف القادم أعلى"
+        " بـ 1 - 2 دولار مع وضع وقف خسارة قريب."
     )
-elif price_change < -0.3:
+elif price_change < -0.2:
     scalping_signal = "بيع (SELL) 🔴"
-    signal_color = "red"
     scalping_advice = (
-        "هناك ضغط بيعي ملحوظ يرجح استمرار التصحيح اللحظي. يفضل اقتناص صفقات بيع"
+        "ضغط بيعي قصير المدى يرجح استمرار التراجع اللحظي. يفضل اقتناص صفقات بيع"
         " سريعة."
     )
 else:
     scalping_signal = "انتظار (WAIT) ⏳"
-    signal_color = "orange"
     scalping_advice = (
-        "السوق في مرحلة تذبذب عرضي حالياً. يفضل الانتظار لحين كسر مناطق الدعم"
-        " أو المقاومة لتجنب الإشارات الكاذبة."
+        "حركة عرضية متذبذبة حالياً. يفضل الانتظار لحين اتضاح الاتجاه أو كسر"
+        " مستويات الدعم والمقاومة."
     )
 
 # ==========================================
-# 4. الشريط الجانبي (Sidebar)
+# 5. الشريط الجانبي (Sidebar)
 # ==========================================
 with st.sidebar:
-    st.subheader("🤖 مؤشر السكالبينج وحالة السوق")
+    st.subheader("⚡ مؤشر السكالبينج (تحديث تلقائي)")
 
     st.markdown(f"**السعر الحي الحالي:** `{current_price} $`")
     change_symbol = "+" if price_change >= 0 else ""
@@ -94,7 +97,7 @@ with st.sidebar:
     st.markdown(f"### التوصية: **{scalping_signal}**")
     st.markdown(scalping_advice)
 
-    # زر لإرسال التنبيه يدوياً أو تلقائياً إلى تيليجرام
+    # زر إرسال تنبيه يدوي لتيليجرام
     if st.button("🔔 إرسال تنبيه السكالبينج لتيليجرام"):
         full_msg = (
             f"⚡ *تنبيه سكالبينج ذهب (XAUUSD)*\n\n"
@@ -105,9 +108,6 @@ with st.sidebar:
         send_telegram_notification(full_msg)
         st.success("تم إرسال الإشعار بنجاح!")
 
-    if st.button("🔄 تحديث التحليل والسعر"):
-        st.rerun()
-
     st.markdown("---")
     st.subheader("💬 محادثة المستشار الخاص")
 
@@ -116,8 +116,8 @@ with st.sidebar:
             {
                 "role": "assistant",
                 "content": (
-                    "مرحباً بك! أنا أتابع معك حركة السعر اللحظية. اسألني عن"
-                    " أي نقطة دخول."
+                    "مرحباً بك! أنا أتابع معك حركة السعر اللحظية ثانية بثانية."
+                    " اسألني عن أي نقطة دخول."
                 ),
             }
         ]
@@ -133,7 +133,7 @@ with st.sidebar:
             st.markdown(user_input)
         st.session_state.messages.append({"role": "user", "content": user_input})
 
-        ai_reply = f"بخصوص سؤالك ({user_input}) عند السعر الحالي ({current_price})، أنصحك بالالتزام بإشارة ({scalping_signal}) وإدارة رأس المال بحذر."
+        ai_reply = f"بخصوص سؤالك ({user_input}) عند السعر الحالي ({current_price})، أنصحك بالالتزام بإشارة ({scalping_signal}) وإدارة رأس المال بدقة."
         with st.chat_message("assistant"):
             st.markdown(ai_reply)
         st.session_state.messages.append(
@@ -141,7 +141,7 @@ with st.sidebar:
         )
 
 # ==========================================
-# 5. الواجهة الرئيسية (شاشة الشارت)
+# 6. الواجهة الرئيسية (شاشة الشارت)
 # ==========================================
 st.title("📈 محطة تحليل الذهب والفضة & الشاشة الحية")
 
@@ -152,7 +152,6 @@ tradingview_widget_html = """
   <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
   <script type="text/javascript">
   new TradingView.widget(
-  {
   "width": "100%",
   "height": "620",
   "symbol": "OANDA:XAUUSD",
@@ -169,7 +168,6 @@ tradingview_widget_html = """
   "hotlist": true,
   "calendar": false,
   "container_id": "tradingview_chart"
-  }
   );
   </script>
 </div>
