@@ -1,7 +1,6 @@
 import datetime
 import os
 import random
-import pytz
 import streamlit.components.v1 as components
 import streamlit as st
 from openai import OpenAI
@@ -30,20 +29,46 @@ client = OpenAI(base_url="https://api.groq.com/openai/v1", api_key=GROQ_API_KEY)
 
 
 # ==========================================
-# 3. التحقق من أوقات العمل الرسمية (توقيت العراق)
+# 3. التحقق من أوقات العمل الرسمية (بتوقيت العراق المحلي بدون مكتبات خارجية)
 # ==========================================
 def check_market_status():
-    iraq_tz = pytz.timezone("Asia/Baghdad")
-    now_iraq = datetime.datetime.now(iraq_tz)
-    weekday = now_iraq.weekday()  # 0=الإثنين, ..., 5=السبت, 6=الأحد
+    # توقيت العراق يوافق UTC+3
+    utc_now = datetime.datetime.utcnow()
+    iraq_now = utc_now + datetime.timedelta(hours=3)
+    weekday = iraq_now.weekday()  # 0=الإثنين, ..., 5=السبت, 6=الأحد
+    hour = iraq_now.hour
 
-    # السوق يغلق مساء السبت (ساعة 00:00 تقريباً بتوقيت بروكر أو الساعات الأولى) ويفتح فجر الإثنين (01:00 بتوقيت بغداد)
-    # السبت والأحد عطلة رسمية بالكامل للفوركس
-    if weekday == 5 or weekday == 6:
+    # أسواق الفوركس تغلق السبت وتفتح فجر الإثنين (الساعة 01:00 بتوقيت بغداد)
+    if weekday == 5:  # يوم السبت (مغلق بالكامل)
         return {
             "is_open": False,
             "status_text": "السوق مغلق (عطلة نهاية الأسبوع) 🔴",
             "reopen_time": "يفتح السوق رسمياً يوم الإثنين الساعة 1:00 فجراً بتوقيت بغداد",
+        }
+    elif weekday == 6:  # يوم الأحد
+        if (
+            hour < 1
+        ):  # الساعات الأولى من الأحد تعتبر امتداد لعطلة السبت أو إغلاق الأسبوع
+            return {
+                "is_open": False,
+                "status_text": "السوق مغلق (عطلة نهاية الأسبوع) 🔴",
+                "reopen_time": (
+                    "يفتح السوق رسمياً يوم الإثنين الساعة 1:00 فجراً بتوقيت بغداد"
+                ),
+            }
+        else:
+            return {
+                "is_open": False,
+                "status_text": "السوق مغلق (عطلة نهاية الأسبوع) 🔴",
+                "reopen_time": (
+                    "يفتح السوق رسمياً يوم الإثنين الساعة 1:00 فجراً بتوقيت بغداد"
+                ),
+            }
+    elif weekday == 0 and hour < 1:  # فجر الإثنين قبل الساعة 1:00
+        return {
+            "is_open": False,
+            "status_text": "السوق مغلق وقارب على الافتتاح ⏳",
+            "reopen_time": "يفتح السوق اليوم الساعة 1:00 فجراً بتوقيت بغداد",
         }
     else:
         return {
@@ -63,7 +88,7 @@ def get_live_market_data():
     base_price = 4140.50
     current_price = round(base_price + random.uniform(-3.5, 3.5), 2)
     change = round(random.uniform(-1.2, 1.5), 2)
-    rsi_val = 40  # قيمة افتراضية مستقرة للإغلاق
+    rsi_val = 40
 
     return {
         "price": current_price,
@@ -117,7 +142,6 @@ def get_auto_ai_advice(market_data, status):
 with st.sidebar:
     st.subheader("🤖 حالة السوق والتوقعات (Live AI)")
 
-    # عرض حالة السوق بناءً على التوقيت المحلي للعراق
     st.markdown(f"* **حالة السوق:** `{market_status['status_text']}`")
 
     if not market_status["is_open"]:
@@ -131,7 +155,6 @@ with st.sidebar:
 
     st.markdown("---")
 
-    # جلب التوقعات أو النصيحة الذكية
     with st.spinner("جاري تحليل حالة السوق..."):
         live_advice = get_auto_ai_advice(market, market_status)
     st.info(live_advice)
