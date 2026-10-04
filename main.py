@@ -29,42 +29,27 @@ client = OpenAI(base_url="https://api.groq.com/openai/v1", api_key=GROQ_API_KEY)
 
 
 # ==========================================
-# 3. التحقق من أوقات العمل الرسمية (بتوقيت العراق المحلي بدون مكتبات خارجية)
+# 3. التحقق من أوقات العمل الرسمية (بتوقيت العراق المحلي)
 # ==========================================
 def check_market_status():
-    # توقيت العراق يوافق UTC+3
     utc_now = datetime.datetime.utcnow()
     iraq_now = utc_now + datetime.timedelta(hours=3)
     weekday = iraq_now.weekday()  # 0=الإثنين, ..., 5=السبت, 6=الأحد
     hour = iraq_now.hour
 
-    # أسواق الفوركس تغلق السبت وتفتح فجر الإثنين (الساعة 01:00 بتوقيت بغداد)
-    if weekday == 5:  # يوم السبت (مغلق بالكامل)
+    if weekday == 5:  # السبت
         return {
             "is_open": False,
             "status_text": "السوق مغلق (عطلة نهاية الأسبوع) 🔴",
             "reopen_time": "يفتح السوق رسمياً يوم الإثنين الساعة 1:00 فجراً بتوقيت بغداد",
         }
-    elif weekday == 6:  # يوم الأحد
-        if (
-            hour < 1
-        ):  # الساعات الأولى من الأحد تعتبر امتداد لعطلة السبت أو إغلاق الأسبوع
-            return {
-                "is_open": False,
-                "status_text": "السوق مغلق (عطلة نهاية الأسبوع) 🔴",
-                "reopen_time": (
-                    "يفتح السوق رسمياً يوم الإثنين الساعة 1:00 فجراً بتوقيت بغداد"
-                ),
-            }
-        else:
-            return {
-                "is_open": False,
-                "status_text": "السوق مغلق (عطلة نهاية الأسبوع) 🔴",
-                "reopen_time": (
-                    "يفتح السوق رسمياً يوم الإثنين الساعة 1:00 فجراً بتوقيت بغداد"
-                ),
-            }
-    elif weekday == 0 and hour < 1:  # فجر الإثنين قبل الساعة 1:00
+    elif weekday == 6:  # الأحد
+        return {
+            "is_open": False,
+            "status_text": "السوق مغلق (عطلة نهاية الأسبوع) 🔴",
+            "reopen_time": "يفتح السوق رسمياً يوم الإثنين الساعة 1:00 فجراً بتوقيت بغداد",
+        }
+    elif weekday == 0 and hour < 1:  # فجر الإثنين قبل 1:00
         return {
             "is_open": False,
             "status_text": "السوق مغلق وقارب على الافتتاح ⏳",
@@ -82,39 +67,32 @@ market_status = check_market_status()
 
 
 # ==========================================
-# 4. محاكي الأسعار والتوقعات
+# 4. محاكي الأسعار
 # ==========================================
 def get_live_market_data():
     base_price = 4140.50
     current_price = round(base_price + random.uniform(-3.5, 3.5), 2)
     change = round(random.uniform(-1.2, 1.5), 2)
-    rsi_val = 40
-
-    return {
-        "price": current_price,
-        "change": change,
-        "rsi": rsi_val,
-        "momentum": "استقرار وترقب الافتتاح ⚖️",
-    }
+    return {"price": current_price, "change": change}
 
 
 market = get_live_market_data()
 
 
 # ==========================================
-# 5. دالة التوصيات والتوقعات الذكية
+# 5. دالة التوصيات والتوقعات الذكية (نصي صافي وآمن)
 # ==========================================
 def get_auto_ai_advice(market_data, status):
     if not status["is_open"]:
         prompt = f"""
         السوق حالياً مغلق (عطلة نهاية الأسبوع)، وسيعود للفتح يوم الإثنين الساعة 1:00 فجراً بتوقيت بغداد.
-        آخر إغلاق للذهب (XAUUSD) كان حول السعر: {market_data['price']}.
-        بصفتك محللاً فنياً محترفاً، قدم توقعات استباقية ونظرة تحليلية قصيرة جداً لما يمكن أن يبدأ به السوق عند الافتتاح وكيف يتعامل المتداول مع فجوات الافتتاح (Gap).
+        آخر إغلاق للذهب (XAUUSD) حول السعر: {market_data['price']}.
+        قدم نصيحة سريعة ومباشرة باللغة العربية حول كيفية الترقب والتعامل مع الافتتاح القادم دون استخدام جداول.
         """
     else:
         prompt = f"""
-        السوق مفتوح. السعر الحالي: {market_data['price']}، التغير: {market_data['change']}%، RSI: {market_data['rsi']}.
-        قدم توصية سكالبينج سريعة ومباشرة.
+        السوق مفتوح. السعر الحالي: {market_data['price']}، التغير: {market_data['change']}%.
+        قدم توصية سكالبينج سريعة ومباشرة باللغة العربية.
         """
 
     try:
@@ -124,7 +102,8 @@ def get_auto_ai_advice(market_data, status):
                 {
                     "role": "system",
                     "content": (
-                        "أنت مستشار مالي وخبير تداول للذهب والفضة."
+                        "أنت مستشار مالي وخبير تداول للذهب والفضة. قدم إجابات"
+                        " نصية مرتبة بدون رموز معقدة."
                     ),
                 },
                 {"role": "user", "content": prompt},
@@ -140,24 +119,27 @@ def get_auto_ai_advice(market_data, status):
 # 6. الشريط الجانبي (Sidebar)
 # ==========================================
 with st.sidebar:
-    st.subheader("🤖 حالة السوق والتوقعات (Live AI)")
+    st.subheader("🤖 حالة السوق والتوقعات")
 
-    st.markdown(f"* **حالة السوق:** `{market_status['status_text']}`")
+    st.markdown(f"**حالة السوق:** {market_status['status_text']}")
 
     if not market_status["is_open"]:
-        st.warning(f"⏳ **موعد الافتتاح:** {market_status['reopen_time']}")
+        st.warning(f"⏳ {market_status['reopen_time']}")
     else:
-        st.markdown(f"* **السعر المباشر:** `{market['price']} $`")
-        st.markdown(f"* **التغير:** `{market['change']}%`")
+        st.markdown(f"**السعر المباشر:** `{market['price']} $`")
+        st.markdown(f"**التغير:** `{market['change']}%`")
 
-    if st.button("🔄 تحديث التحليل والتوقعات"):
+    if st.button("🔄 تحديث التحليل"):
         st.rerun()
 
     st.markdown("---")
 
-    with st.spinner("جاري تحليل حالة السوق..."):
+    with st.spinner("جاري التحليل..."):
         live_advice = get_auto_ai_advice(market, market_status)
-    st.info(live_advice)
+
+    # عرض النصيحة داخل مmarkdown عادي لتفادي أخطاء الـ Server
+    st.markdown("### 💡 التوصية الحالية")
+    st.markdown(live_advice)
 
     st.markdown("---")
     st.subheader("💬 محادثة المستشار الخاص")
@@ -166,10 +148,7 @@ with st.sidebar:
         st.session_state.messages = [
             {
                 "role": "assistant",
-                "content": (
-                    "مرحباً بك! أنا أتابع أوقات وأيام عمل السوق معك. اسألني"
-                    " عن أي استراتيجية أو تحليل!"
-                ),
+                "content": "مرحباً بك! أنا أتابع السوق معك. اسألني أي وقت.",
             }
         ]
 
