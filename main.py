@@ -1,7 +1,33 @@
 import datetime
 import random
+import requests
 import streamlit.components.v1 as components
 import streamlit as st
+
+# ==========================================
+# 0. إعدادات تيليجرام للإشعارات الفورية
+# ==========================================
+TELEGRAM_BOT_TOKEN = "ضع_التوكن_هنا"  # ضع توكن بوت تيليجرام الخاص بك هنا
+TELEGRAM_CHAT_ID = "ضع_الآيدي_هنا"  # ضع الآيدي الخاص بك هنا
+
+
+def send_telegram_notification(message):
+    if (
+        TELEGRAM_BOT_TOKEN == "ضع_التوكن_هنا"
+        or TELEGRAM_CHAT_ID == "ضع_الآيدي_هنا"
+    ):
+        return
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": message,
+        "parse_mode": "Markdown",
+    }
+    try:
+        requests.post(url, json=payload, timeout=5)
+    except Exception:
+        pass
+
 
 # ==========================================
 # 1. إعدادات الصفحة
@@ -11,50 +37,76 @@ st.set_page_config(
 )
 
 # ==========================================
-# 2. التحقق من أوقات العمل الرسمية (بتوقيت العراق)
+# 2. محاكي الأسعار الذكي للسكالبينج (متزامن وحي)
 # ==========================================
-utc_now = datetime.datetime.utcnow()
-iraq_now = utc_now + datetime.timedelta(hours=3)
-weekday = iraq_now.weekday()  # 5=السبت, 6=الأحد
+if "gold_price" not in st.session_state:
+    st.session_state.gold_price = 4145.21
+    st.session_state.gold_change = 0.11
 
-if weekday == 5 or weekday == 6:
-    market_status = "السوق مغلق (عطلة نهاية الأسبوع) 🔴"
-    reopen_msg = (
-        "⏳ موعد الافتتاح: يفتح السوق رسمياً يوم الإثنين الساعة 1:00 فجراً بتوقيت"
-        " بغداد"
+# محاكاة حركة سعرية بسيطة عند كل تحديث للصفحة
+price_step = round(random.uniform(-0.8, 0.9), 2)
+st.session_state.gold_price = round(
+    st.session_state.gold_price + price_step, 2
+)
+st.session_state.gold_change = round(
+    st.session_state.gold_change + (price_step * 0.02), 2
+)
+
+current_price = st.session_state.gold_price
+price_change = st.session_state.gold_change
+
+# ==========================================
+# 3. نظام توليد توصيات السكالبينج (شراء / بيع / انتظار)
+# ==========================================
+if price_change > 0.3:
+    scalping_signal = "شراء (BUY) 🟢"
+    signal_color = "green"
+    scalping_advice = (
+        "الخميرة صعودية قوية تدعم صفقات الشراء (Scalping). الهدف القادم أعلى بـ"
+        " 1.5 - 3 دولار مع وضع وقف خسارة قريب."
     )
-    advice_text = (
-        "السوق مغلق حالياً بسبب عطلة نهاية الأسبوع. ترقب فجوات الافتتاح (Gap)"
-        " عند العودة يوم الإثنين واحرص على إدارة المخاطر."
+elif price_change < -0.3:
+    scalping_signal = "بيع (SELL) 🔴"
+    signal_color = "red"
+    scalping_advice = (
+        "هناك ضغط بيعي ملحوظ يرجح استمرار التصحيح اللحظي. يفضل اقتناص صفقات بيع"
+        " سريعة."
     )
 else:
-    market_status = "السوق مفتوح ويشهد تداولاً حيّاً 🟢"
-    reopen_msg = ""
-    advice_text = (
-        "التوصية الحالية: راقب مستويات الدعم والمقاومة الحية على الشارت،"
-        " واستخدم استراتيجيات السكالبينج بحذر."
+    scalping_signal = "انتظار (WAIT) ⏳"
+    signal_color = "orange"
+    scalping_advice = (
+        "السوق في مرحلة تذبذب عرضي حالياً. يفضل الانتظار لحين كسر مناطق الدعم"
+        " أو المقاومة لتجنب الإشارات الكاذبة."
     )
 
 # ==========================================
-# 3. الشريط الجانبي (Sidebar)
+# 4. الشريط الجانبي (Sidebar)
 # ==========================================
 with st.sidebar:
-    st.subheader("🤖 حالة السوق والتوقعات")
+    st.subheader("🤖 مؤشر السكالبينج وحالة السوق")
 
-    st.markdown(f"**حالة السوق:** {market_status}")
-
-    if reopen_msg:
-        st.warning(reopen_msg)
-    else:
-        st.markdown(f"**السعر المباشر:** `4,140.50 $`")
-        st.markdown(f"**التغير:** `+1.35%`")
-
-    if st.button("🔄 تحديث التحليل"):
-        st.rerun()
+    st.markdown(f"**السعر الحي الحالي:** `{current_price} $`")
+    change_symbol = "+" if price_change >= 0 else ""
+    st.markdown(f"**نسبة التغير:** `{change_symbol}{price_change}%`")
 
     st.markdown("---")
-    st.markdown("### 💡 التوصية الحالية")
-    st.markdown(advice_text)
+    st.markdown(f"### التوصية: **{scalping_signal}**")
+    st.markdown(scalping_advice)
+
+    # زر لإرسال التنبيه يدوياً أو تلقائياً إلى تيليجرام
+    if st.button("🔔 إرسال تنبيه السكالبينج لتيليجرام"):
+        full_msg = (
+            f"⚡ *تنبيه سكالبينج ذهب (XAUUSD)*\n\n"
+            f"💵 السعر الحالي: `{current_price} $`\n"
+            f"📊 التوصية: *{scalping_signal}*\n"
+            f"💡 التفاصيل: {scalping_advice}"
+        )
+        send_telegram_notification(full_msg)
+        st.success("تم إرسال الإشعار بنجاح!")
+
+    if st.button("🔄 تحديث التحليل والسعر"):
+        st.rerun()
 
     st.markdown("---")
     st.subheader("💬 محادثة المستشار الخاص")
@@ -64,7 +116,8 @@ with st.sidebar:
             {
                 "role": "assistant",
                 "content": (
-                    "مرحباً بك! أنا أتابع السوق معك. اسألني أي وقت عن التحليل."
+                    "مرحباً بك! أنا أتابع معك حركة السعر اللحظية. اسألني عن"
+                    " أي نقطة دخول."
                 ),
             }
         ]
@@ -80,7 +133,7 @@ with st.sidebar:
             st.markdown(user_input)
         st.session_state.messages.append({"role": "user", "content": user_input})
 
-        ai_reply = f"لقد استلمت سؤالك حول ({user_input}). نظراً لأن السوق في حالة ترقب، أنصحك بمراقبة حركة السعر الحية على الشارت."
+        ai_reply = f"بخصوص سؤالك ({user_input}) عند السعر الحالي ({current_price})، أنصحك بالالتزام بإشارة ({scalping_signal}) وإدارة رأس المال بحذر."
         with st.chat_message("assistant"):
             st.markdown(ai_reply)
         st.session_state.messages.append(
@@ -88,7 +141,7 @@ with st.sidebar:
         )
 
 # ==========================================
-# 4. الواجهة الرئيسية (شاشة الشارت)
+# 5. الواجهة الرئيسية (شاشة الشارت)
 # ==========================================
 st.title("📈 محطة تحليل الذهب والفضة & الشاشة الحية")
 
