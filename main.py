@@ -5,16 +5,6 @@ import streamlit.components.v1 as components
 import streamlit as st
 
 # ==========================================
-# 0. إعدادات التحديث التلقائي اللحظي (كل ثانية بدون مكتبات خارجية)
-# ==========================================
-st.markdown(
-    """
-    <meta http-equiv="refresh" content="1">
-""",
-    unsafe_allow_html=True,
-)
-
-# ==========================================
 # 1. إعدادات تيليجرام للإشعارات الفورية
 # ==========================================
 TELEGRAM_BOT_TOKEN = "ضع_التوكن_هنا"  # ضع توكن بوت تيليجرام الخاص بك هنا
@@ -47,20 +37,11 @@ st.set_page_config(
 )
 
 # ==========================================
-# 3. محاكي الأسعار اللحظي (يتحدث مع كل إعادة تحميل ثانية)
+# 3. إدارة حالة الأسعار والسكالبينج عبر زر التحديث فقط
 # ==========================================
 if "gold_price" not in st.session_state:
     st.session_state.gold_price = 4144.95
     st.session_state.gold_change = 0.11
-
-# تحديث السعر مع كل ثانية ليعكس نبض السوق الحي
-price_step = round(random.uniform(-0.3, 0.35), 2)
-st.session_state.gold_price = round(
-    st.session_state.gold_price + price_step, 2
-)
-st.session_state.gold_change = round(
-    st.session_state.gold_change + (price_step * 0.01), 2
-)
 
 current_price = st.session_state.gold_price
 price_change = st.session_state.gold_change
@@ -91,15 +72,26 @@ else:
 # 5. الشريط الجانبي (Sidebar)
 # ==========================================
 with st.sidebar:
-    st.subheader("⚡ مؤشر السكالبينج (تحديث تلقائي)")
+    st.subheader("⚡ مؤشر السكالبينج (تحديث يدوي)")
 
-    st.markdown(f"**السعر الحي الحالي:** `{current_price} $`")
+    st.markdown(f"**السعر الحالي:** `{current_price} $`")
     change_symbol = "+" if price_change >= 0 else ""
     st.markdown(f"**نسبة التغير:** `{change_symbol}{price_change}%`")
 
     st.markdown("---")
     st.markdown(f"### التوصية: **{scalping_signal}**")
     st.markdown(scalping_advice)
+
+    # زر التحديث اليدوي المباشر للتحليل والسعر
+    if st.button("🔄 تحديث التحليل والسعر"):
+        price_step = round(random.uniform(-0.4, 0.45), 2)
+        st.session_state.gold_price = round(
+            st.session_state.gold_price + price_step, 2
+        )
+        st.session_state.gold_change = round(
+            st.session_state.gold_change + (price_step * 0.01), 2
+        )
+        st.rerun()
 
     # زر إرسال تنبيه يدوي لتيليجرام
     if st.button("🔔 إرسال تنبيه السكالبينج لتيليجرام"):
@@ -120,8 +112,8 @@ with st.sidebar:
             {
                 "role": "assistant",
                 "content": (
-                    "مرحباً بك! أنا أتابع معك حركة السعر اللحظية ثانية بثانية."
-                    " اسألني عن أي نقطة دخول."
+                    "مرحباً بك! أنا أتابع معك حركة السعر. اضغط على زر التحديث"
+                    " متى ما أردت تحديث التحليل."
                 ),
             }
         ]
