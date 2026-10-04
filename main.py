@@ -3,12 +3,16 @@ import random
 import requests
 import streamlit.components.v1 as components
 import streamlit as st
-from streamlit_autorefresh import st_autorefresh
 
 # ==========================================
-# 0. إعدادات التحديث التلقائي (كل ثانية واحدة 1000ms)
+# 0. إعدادات التحديث التلقائي اللحظي (كل ثانية بدون مكتبات خارجية)
 # ==========================================
-st_autorefresh(interval=1000, key="live_gold_ticker")
+st.markdown(
+    """
+    <meta http-equiv="refresh" content="1">
+""",
+    unsafe_allow_html=True,
+)
 
 # ==========================================
 # 1. إعدادات تيليجرام للإشعارات الفورية
@@ -43,13 +47,13 @@ st.set_page_config(
 )
 
 # ==========================================
-# 3. محاكي الأسعار اللحظي (يتحدث كل ثانية)
+# 3. محاكي الأسعار اللحظي (يتحدث مع كل إعادة تحميل ثانية)
 # ==========================================
 if "gold_price" not in st.session_state:
     st.session_state.gold_price = 4144.95
     st.session_state.gold_change = 0.11
 
-# تحديث طفيف للسعر مع كل ثانية ليعكس نبض السوق الحي
+# تحديث السعر مع كل ثانية ليعكس نبض السوق الحي
 price_step = round(random.uniform(-0.3, 0.35), 2)
 st.session_state.gold_price = round(
     st.session_state.gold_price + price_step, 2
@@ -152,6 +156,7 @@ tradingview_widget_html = """
   <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
   <script type="text/javascript">
   new TradingView.widget(
+  {
   "width": "100%",
   "height": "620",
   "symbol": "OANDA:XAUUSD",
@@ -168,6 +173,7 @@ tradingview_widget_html = """
   "hotlist": true,
   "calendar": false,
   "container_id": "tradingview_chart"
+  }
   );
   </script>
 </div>
