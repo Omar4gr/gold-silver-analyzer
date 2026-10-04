@@ -1,6 +1,7 @@
+import datetime
 import os
 import random
-import time
+import pytz
 import streamlit.components.v1 as components
 import streamlit as st
 from openai import OpenAI
@@ -29,51 +30,67 @@ client = OpenAI(base_url="https://api.groq.com/openai/v1", api_key=GROQ_API_KEY)
 
 
 # ==========================================
-# 3. محاكي القراءات الحية للسوق (Live Market Feed)
+# 3. التحقق من أوقات العمل الرسمية (توقيت العراق)
+# ==========================================
+def check_market_status():
+    iraq_tz = pytz.timezone("Asia/Baghdad")
+    now_iraq = datetime.datetime.now(iraq_tz)
+    weekday = now_iraq.weekday()  # 0=الإثنين, ..., 5=السبت, 6=الأحد
+
+    # السوق يغلق مساء السبت (ساعة 00:00 تقريباً بتوقيت بروكر أو الساعات الأولى) ويفتح فجر الإثنين (01:00 بتوقيت بغداد)
+    # السبت والأحد عطلة رسمية بالكامل للفوركس
+    if weekday == 5 or weekday == 6:
+        return {
+            "is_open": False,
+            "status_text": "السوق مغلق (عطلة نهاية الأسبوع) 🔴",
+            "reopen_time": "يفتح السوق رسمياً يوم الإثنين الساعة 1:00 فجراً بتوقيت بغداد",
+        }
+    else:
+        return {
+            "is_open": True,
+            "status_text": "السوق مفتوح ويشهد تداولاً حيّاً 🟢",
+            "reopen_time": "",
+        }
+
+
+market_status = check_market_status()
+
+
+# ==========================================
+# 4. محاكي الأسعار والتوقعات
 # ==========================================
 def get_live_market_data():
-    # محاكاة السعر الحي للذهب بناءً على النطاق الحالي (مثلاً حول 4,140)
     base_price = 4140.50
-    current_price = round(
-        base_price + random.uniform(-3.5, 3.5), 2
-    )  # السعر يتغير لححظياً
+    current_price = round(base_price + random.uniform(-3.5, 3.5), 2)
     change = round(random.uniform(-1.2, 1.5), 2)
-    rsi_val = random.randint(35, 72)  # مؤشر القوة النسبية
-
-    if rsi_val > 65:
-        momentum = "تشبع شرائي (Overbought) ⚠️"
-    elif rsi_val < 40:
-        momentum = "تشبع بيعي (Oversold) ⚠️"
-    else:
-        momentum = "استقرار وتذبذب عرضي ⚖️"
+    rsi_val = 40  # قيمة افتراضية مستقرة للإغلاق
 
     return {
         "price": current_price,
         "change": change,
         "rsi": rsi_val,
-        "momentum": momentum,
+        "momentum": "استقرار وترقب الافتتاح ⚖️",
     }
 
 
-# جلب قراءة السوق الحالية
 market = get_live_market_data()
 
 
 # ==========================================
-# 4. دالة التوصيات الذكية التلقائية
+# 5. دالة التوصيات والتوقعات الذكية
 # ==========================================
-def get_auto_ai_advice(market_data):
-    prompt = f"""
-    بصفتك خبير سكالبينج وتحليل فني للذهب (XAUUSD)، إليك القراءات الحية الحالية للسوق:
-    - السعر الحالي: {market_data['price']}
-    - نسبة التغير: {market_data['change']}%
-    - مؤشر القوة النسبية (RSI): {market_data['rsi']}
-    - حالة الزخم: {market_data['momentum']}
-
-    قدم نصيحة وتوصية تداول فورية وموجزة جداً (في حدود أسطر معدودة) تتضمن:
-    1. الإشارة (شراء 🟢 / بيع 🔴 / انتظار ⏳).
-    2. السبب الفني السريع بناءً على الأرقام الحالية.
-    """
+def get_auto_ai_advice(market_data, status):
+    if not status["is_open"]:
+        prompt = f"""
+        السوق حالياً مغلق (عطلة نهاية الأسبوع)، وسيعود للفتح يوم الإثنين الساعة 1:00 فجراً بتوقيت بغداد.
+        آخر إغلاق للذهب (XAUUSD) كان حول السعر: {market_data['price']}.
+        بصفتك محللاً فنياً محترفاً، قدم توقعات استباقية ونظرة تحليلية قصيرة جداً لما يمكن أن يبدأ به السوق عند الافتتاح وكيف يتعامل المتداول مع فجوات الافتتاح (Gap).
+        """
+    else:
+        prompt = f"""
+        السوق مفتوح. السعر الحالي: {market_data['price']}، التغير: {market_data['change']}%، RSI: {market_data['rsi']}.
+        قدم توصية سكالبينج سريعة ومباشرة.
+        """
 
     try:
         response = client.chat.completions.create(
@@ -82,7 +99,7 @@ def get_auto_ai_advice(market_data):
                 {
                     "role": "system",
                     "content": (
-                        "أنت مستشار مالي آلي يقدم توصيات سكالبينج لحظية ومباشرة."
+                        "أنت مستشار مالي وخبير تداول للذهب والفضة."
                     ),
                 },
                 {"role": "user", "content": prompt},
@@ -91,46 +108,44 @@ def get_auto_ai_advice(market_data):
         )
         return response.choices[0].message.content
     except Exception as e:
-        return "⚠️️ تعذر جلب التوصية الآلية حالياً."
+        return "⚠ تعذر جلب التوصية حالياً."
 
 
 # ==========================================
-# 5. الشريط الجانبي (Sidebar) - التوصيات الحية والشات
+# 6. الشريط الجانبي (Sidebar)
 # ==========================================
 with st.sidebar:
-    st.subheader("🤖 التوصيات الآلية الحية (Live AI)")
+    st.subheader("🤖 حالة السوق والتوقعات (Live AI)")
 
-    # عرض بطاقة الأسعار والقراءات الحية في الشريط الجانبي
-    st.markdown(
-        f"""
-    * **السعر المباشر:** `{market['price']} $`
-    * **التغير:** `{market['change']}%`
-    * **مؤشر RSI:** `{market['rsi']}`
-    * **الحالة:** `{market['momentum']}`
-    """
-    )
+    # عرض حالة السوق بناءً على التوقيت المحلي للعراق
+    st.markdown(f"* **حالة السوق:** `{market_status['status_text']}`")
 
-    if st.button("🔄 تحديث التحليل والنصائح الآن"):
+    if not market_status["is_open"]:
+        st.warning(f"⏳ **موعد الافتتاح:** {market_status['reopen_time']}")
+    else:
+        st.markdown(f"* **السعر المباشر:** `{market['price']} $`")
+        st.markdown(f"* **التغير:** `{market['change']}%`")
+
+    if st.button("🔄 تحديث التحليل والتوقعات"):
         st.rerun()
 
     st.markdown("---")
 
-    # جلب وعرض النصيحة المستمرة من الذكاء الاصطناعي بناءً على السعر الحي
-    with st.spinner("جاري تحليل القراءات الحية..."):
-        live_advice = get_auto_ai_advice(market)
+    # جلب التوقعات أو النصيحة الذكية
+    with st.spinner("جاري تحليل حالة السوق..."):
+        live_advice = get_auto_ai_advice(market, market_status)
     st.info(live_advice)
 
     st.markdown("---")
     st.subheader("💬 محادثة المستشار الخاص")
 
-    # تهيئة سجل المحادثة
     if "messages" not in st.session_state:
         st.session_state.messages = [
             {
                 "role": "assistant",
                 "content": (
-                    "مرحباً بك! أنا أراقب الأسعار الحية للذهب معك. اسألني أي"
-                    " شيء عن السوق!"
+                    "مرحباً بك! أنا أتابع أوقات وأيام عمل السوق معك. اسألني"
+                    " عن أي استراتيجية أو تحليل!"
                 ),
             }
         ]
@@ -139,7 +154,7 @@ with st.sidebar:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
 
-    user_input = st.chat_input("اطرح سؤالك أو اطلب صفقة...")
+    user_input = st.chat_input("اطرح سؤالك هنا...")
 
     if user_input:
         with st.chat_message("user"):
@@ -148,7 +163,6 @@ with st.sidebar:
 
         with st.chat_message("assistant"):
             with st.spinner("جاري الرد..."):
-                # دالة العادية للدردشة
                 messages_payload = [
                     {
                         "role": "system",
@@ -174,11 +188,10 @@ with st.sidebar:
 
 
 # ==========================================
-# 6. الواجهة الرئيسية (شاشة مراقبة الشارت)
+# 7. الواجهة الرئيسية (شاشة الشارت)
 # ==========================================
 st.title("📈 محطة تحليل الذهب والفضة & الشاشة الحية")
 
-# تضمين شارت TradingView الاحترافي
 tradingview_widget_html = """
 <!-- TradingView Widget BEGIN -->
 <div class="tradingview-widget-container" style="height:620px;width:100%">
