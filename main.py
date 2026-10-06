@@ -99,19 +99,26 @@ html, body, [class*="css"] {
     background: rgba(255,255,255,.035);
     border: 1px solid var(--line);
 }
-@media (max-width: 700px) {
-    .block-container { padding: .55rem .55rem 1.2rem; }
-    .hero { padding: 15px; border-radius: 15px; }
-    .hero h1 { font-size: 22px; }
-    .hero p { font-size: 12px; }
-    .card { padding: 12px; border-radius: 13px; }
-    [data-testid="stMetricValue"] { font-size: 20px; }
-    [data-testid="stHorizontalBlock"] {
-        flex-wrap: wrap;
-    }
-    [data-testid="column"] {
-        min-width: 47% !important;
-    }
+@media (max-width: 768px) {
+    html, body, .stApp { overflow-x: hidden !important; }
+    .block-container { width:100% !important; max-width:100% !important; padding:.55rem !important; }
+    .hero { padding:14px; border-radius:15px; margin-bottom:10px; }
+    .hero h1 { font-size:21px; line-height:1.25; }
+    .hero p { font-size:12px; line-height:1.5; }
+    .card, .signal-buy, .signal-sell, .signal-neutral { padding:12px !important; border-radius:13px !important; overflow-wrap:anywhere; }
+    .signal-buy h2, .signal-sell h2, .signal-neutral h2 { font-size:19px; }
+    [data-testid="stHorizontalBlock"] { display:flex !important; flex-direction:column !important; width:100% !important; gap:8px !important; }
+    [data-testid="column"] { width:100% !important; min-width:100% !important; max-width:100% !important; flex:1 1 100% !important; padding:0 !important; }
+    [data-testid="stMetric"] { width:100% !important; padding:10px 11px !important; border:1px solid var(--line); border-radius:12px; background:rgba(255,255,255,.025); }
+    [data-testid="stMetricValue"] { font-size:20px !important; }
+    .stButton > button { width:100% !important; min-height:46px; }
+    [data-testid="stIFrame"], iframe { width:100% !important; max-width:100% !important; }
+    section[data-testid="stSidebar"] { min-width:280px !important; max-width:88vw !important; }
+}
+@media (max-width: 430px) {
+    .hero h1 { font-size:19px; }
+    .hero p { font-size:11px; }
+    [data-testid="stMetricValue"] { font-size:18px !important; }
 }
 </style>
 """,
@@ -544,6 +551,74 @@ def analyze_mila(
     }
 
 
+
+# ============================================================
+# 8) MILA PRO RISK / QUALITY / BACKTEST HELPERS
+# ============================================================
+def clamp(value, low, high):
+    return max(low, min(high, value))
+
+def signal_confidence(analysis):
+    score = float(analysis.get("score", 0))
+    vol = float(analysis.get("volume_ratio", 1) or 1)
+    rsi_v = float(analysis.get("rsi", 50) or 50)
+    trend = str(analysis.get("trend", ""))
+    conf = 35 + score * 7
+    if "قوي" in trend: conf += 8
+    if vol >= 1.2: conf += 7
+    if analysis.get("signal") == "BUY" and 38 <= rsi_v <= 68: conf += 4
+    if analysis.get("signal") == "SELL" and 32 <= rsi_v <= 62: conf += 4
+    if analysis.get("signal") == "WAIT": conf = min(conf, 49)
+    return int(clamp(round(conf), 0, 100))
+
+def quality_gate(analysis, min_confidence=70, min_score=6, min_volume_ratio=0.8):
+    conf = signal_confidence(analysis)
+    reasons = []
+    if analysis.get("signal") not in ("BUY", "SELL"): reasons.append("لا توجد إشارة دخول")
+    if int(analysis.get("score", 0)) < int(min_score): reasons.append("Score أقل من الحد")
+    if conf < int(min_confidence): reasons.append("الثقة أقل من الحد")
+    if float(analysis.get("volume_ratio", 0) or 0) < float(min_volume_ratio): reasons.append("الحجم ضعيف")
+    if not np.isfinite(analysis.get("atr", np.nan)) or float(analysis.get("atr", 0)) <= 0: reasons.append("ATR غير صالح")
+    return len(reasons) == 0, conf, reasons
+
+def trade_levels(analysis, rr1=1.0, rr2=1.5, rr3=2.0):
+    entry, sl, side = float(analysis.get("entry", np.nan)), float(analysis.get("sl", np.nan)), analysis.get("signal")
+    if side not in ("BUY", "SELL") or not np.isfinite(entry) or not np.isfinite(sl):
+        return {"tp1": np.nan, "tp2": np.nan, "tp3": np.nan, "risk": np.nan}
+    risk = abs(entry - sl)
+    direction = 1 if side == "BUY" else -1
+    return {"risk": risk, "tp1": entry + direction*risk*rr1, "tp2": entry + direction*risk*rr2, "tp3": entry + direction*risk*rr3}
+
+def recommended_lot(balance, risk_pct, entry, sl, contract_size=100.0, max_lot=1.0):
+    stop_distance = abs(float(entry) - float(sl)) if np.isfinite(entry) and np.isfinite(sl) else 0
+    if stop_distance <= 0 or contract_size <= 0: return 0.01
+    lot = (float(balance) * float(risk_pct) / 100.0) / (stop_distance * float(contract_size))
+    return float(clamp(round(lot, 2), 0.01, max_lot))
+
+def simple_backtest(df, analyzer_kwargs, horizon=12, min_bars=220):
+    if df is None or len(df) < min_bars:
+        return {"trades":0,"wins":0,"losses":0,"win_rate":0.0,"profit_factor":0.0,"net_r":0.0,"max_drawdown_r":0.0}
+    wins=losses=0; gross_win=gross_loss=equity_r=peak_r=max_dd=0.0
+    start=max(80,min_bars//2); step=max(2,horizon//3)
+    for i in range(start,len(df)-horizon,step):
+        a=analyze_mila(df.iloc[:i+1],**analyzer_kwargs)
+        if a["signal"] not in ("BUY","SELL") or not np.isfinite(a["sl"]) or not np.isfinite(a["tp"]): continue
+        entry,sl,tp=float(a["entry"]),float(a["sl"]),float(a["tp"]); risk=abs(entry-sl)
+        if risk<=0: continue
+        outcome=None
+        for _,bar in df.iloc[i+1:i+1+horizon].iterrows():
+            if a["signal"]=="BUY": hit_sl,hit_tp=float(bar["low"])<=sl,float(bar["high"])>=tp
+            else: hit_sl,hit_tp=float(bar["high"])>=sl,float(bar["low"])<=tp
+            if hit_sl: outcome=-1.0; break
+            if hit_tp: outcome=abs(tp-entry)/risk; break
+        if outcome is None: continue
+        if outcome>0: wins+=1; gross_win+=outcome
+        else: losses+=1; gross_loss+=abs(outcome)
+        equity_r+=outcome; peak_r=max(peak_r,equity_r); max_dd=max(max_dd,peak_r-equity_r)
+    trades=wins+losses
+    return {"trades":trades,"wins":wins,"losses":losses,"win_rate":wins/trades*100 if trades else 0.0,
+            "profit_factor":gross_win/gross_loss if gross_loss>0 else gross_win,"net_r":equity_r,"max_drawdown_r":max_dd}
+
 # ============================================================
 # 8) REMOTE MT5 BRIDGE
 # ============================================================
@@ -683,6 +758,15 @@ with st.sidebar:
     va_pct = st.slider("Value Area %", 50, 90, 70)
     volume_multiplier = st.slider("Volume Multiplier", 1.0, 3.0, 1.2, 0.1)
     rr = st.slider("Risk / Reward", 1.0, 5.0, 1.5, 0.1)
+    st.markdown("#### 🛡️ فلتر جودة الصفقة")
+    min_confidence = st.slider("الحد الأدنى للثقة %", 50, 95, 72, 1)
+    min_signal_score = st.slider("الحد الأدنى للـ Score", 5, 10, 6, 1)
+    min_volume_ratio = st.slider("أقل Volume Ratio", 0.5, 2.5, 0.8, 0.1)
+    st.markdown("#### 💰 إدارة المخاطر")
+    account_balance = st.number_input("رصيد الحساب (للحساب فقط)", min_value=100.0, value=1000.0, step=100.0)
+    risk_pct = st.slider("المخاطرة المقترحة لكل صفقة %", 0.25, 3.0, 1.0, 0.25)
+    contract_size = st.number_input("Contract Size تقريبي", min_value=1.0, value=100.0, step=1.0, help="تحقق من مواصفات الرمز لدى وسيطك.")
+    max_recommended_lot = st.number_input("أقصى Lot مقترح", min_value=0.01, value=0.10, step=0.01)
 
     st.markdown("---")
     st.subheader("🌐 Remote MT5")
@@ -768,6 +852,13 @@ else:
         "confirmations": [],
     }
 
+trade_quality_ok, confidence, quality_reasons = quality_gate(
+    analysis, min_confidence=min_confidence, min_score=min_signal_score, min_volume_ratio=min_volume_ratio
+)
+levels = trade_levels(analysis, rr1=1.0, rr2=max(1.5, rr), rr3=max(2.0, rr + 0.5))
+suggested_lot = recommended_lot(account_balance, risk_pct, analysis["entry"], analysis["sl"], contract_size, max_recommended_lot)
+
+
 
 # ============================================================
 # 11) AUTO REMOTE SIGNAL
@@ -775,7 +866,7 @@ else:
 if "last_auto_signal" not in st.session_state:
     st.session_state.last_auto_signal = ""
 
-if remote_enabled and auto_remote and analysis["signal"] in ("BUY", "SELL"):
+if remote_enabled and auto_remote and trade_quality_ok and analysis["signal"] in ("BUY", "SELL"):
     auto_key = (
         f"{symbol}-{interval}-{analysis['signal']}-"
         f"{round(float(analysis['entry']), 2)}"
@@ -833,6 +924,24 @@ with status_col2:
 with status_col3:
     st.metric("الاتجاه", analysis["trend"])
 
+
+
+# ============================================================
+# 13) PRO QUALITY / RISK DASHBOARD
+# ============================================================
+q1,q2,q3,q4=st.columns(4)
+with q1: st.metric("الثقة",f"{confidence}%")
+with q2: st.metric("فلتر الجودة","مسموح ✅" if trade_quality_ok else "مرفوض ⛔")
+with q3: st.metric("Lot مقترح",f"{suggested_lot:.2f}")
+with q4: st.metric("المخاطرة",f"{risk_pct:.2f}%")
+if not trade_quality_ok and analysis["signal"] in ("BUY","SELL"):
+    st.warning("تم حجب التنفيذ التلقائي: "+" • ".join(quality_reasons))
+if analysis["signal"] in ("BUY","SELL") and np.isfinite(levels["risk"]):
+    t1,t2,t3,ts=st.columns(4)
+    with t1: st.metric("TP1",f"{levels['tp1']:.2f}")
+    with t2: st.metric("TP2",f"{levels['tp2']:.2f}")
+    with t3: st.metric("TP3",f"{levels['tp3']:.2f}")
+    with ts: st.metric("SL",f"{analysis['sl']:.2f}")
 
 # ============================================================
 # 13) SIGNAL CARD
@@ -926,6 +1035,23 @@ if not df.empty:
         st.bar_chart(profile_df, height=300)
 
 
+
+# ============================================================
+# 16) BACKTEST DIAGNOSTIC
+# ============================================================
+with st.expander("🧪 Backtest تشخيصي للاستراتيجية"):
+    st.caption("اختبار تاريخي مبسط. لا يشمل السبريد والانزلاق والعمولات ولا يضمن النتائج المستقبلية.")
+    bt_horizon=st.slider("شموع متابعة الإشارة",4,36,12,2)
+    if st.button("تشغيل Backtest",use_container_width=True):
+        with st.spinner("جاري الاختبار..."):
+            bt=simple_backtest(df,{"profile_rows":profile_rows,"lookback":lookback,"va_pct":va_pct,"volume_multiplier":volume_multiplier,"rr":rr},horizon=bt_horizon)
+        b1,b2,b3,b4=st.columns(4)
+        with b1: st.metric("الصفقات",bt["trades"])
+        with b2: st.metric("Win Rate",f"{bt['win_rate']:.1f}%")
+        with b3: st.metric("Profit Factor",f"{bt['profit_factor']:.2f}")
+        with b4: st.metric("Max DD",f"{bt['max_drawdown_r']:.2f}R")
+        st.metric("صافي النتيجة",f"{bt['net_r']:.2f}R")
+
 # ============================================================
 # 16) TRADINGVIEW
 # ============================================================
@@ -994,7 +1120,7 @@ new TradingView.widget({{
 
 components.html(
     tradingview_widget_html,
-    height=620,
+    height=540,
     scrolling=False,
 )
 
