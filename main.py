@@ -30,26 +30,110 @@ st.set_page_config(
 
 st.markdown("""
 <style>
-:root { --bg:#080b10; --panel:#0d1117; --panel2:#111720; --line:#26303c; }
-.stApp { background: radial-gradient(circle at 15% 0%, #14202c 0%, #080b10 38%, #07090d 100%); }
-.block-container { max-width: 1500px; padding-top: 1rem; padding-bottom: 2rem; }
-[data-testid="stSidebar"] { background: #090d12; border-right: 1px solid #202936; }
+:root {
+    --bg:#080b10;
+    --panel:#0d1117;
+    --panel2:#111720;
+    --line:#26303c;
+}
+.stApp {
+    background: radial-gradient(circle at 15% 0%, #14202c 0%, #080b10 38%, #07090d 100%);
+}
+.block-container {
+    max-width: 1500px;
+    padding: 1rem 1.1rem 2rem;
+}
+[data-testid="stSidebar"] {
+    background:#090d12;
+    border-right:1px solid #202936;
+}
 .mila-card {
-    background: linear-gradient(145deg, rgba(18,24,32,.96), rgba(9,13,18,.96));
-    border: 1px solid #26303c; border-radius: 16px; padding: 16px;
-    box-shadow: 0 10px 35px rgba(0,0,0,.24); margin-bottom: 12px;
+    background:linear-gradient(145deg,rgba(18,24,32,.96),rgba(9,13,18,.96));
+    border:1px solid #26303c;
+    border-radius:16px;
+    padding:16px;
+    box-shadow:0 10px 35px rgba(0,0,0,.24);
+    margin-bottom:12px;
 }
-.mila-title { font-size: 28px; font-weight: 800; letter-spacing: .4px; }
-.mila-muted { color:#9aa6b2; font-size:13px; }
-.mila-buy { color:#55f39a; font-weight:800; }
-.mila-sell { color:#ff6670; font-weight:800; }
-.mila-wait { color:#ffc857; font-weight:800; }
+.mila-title {font-size:28px;font-weight:800;letter-spacing:.4px;}
+.mila-muted {color:#9aa6b2;font-size:13px;}
+.mila-buy {color:#55f39a;font-weight:800;}
+.mila-sell {color:#ff6670;font-weight:800;}
+.mila-wait {color:#ffc857;font-weight:800;}
 .metric-box {
-    background:#0d1117; border:1px solid #202936; border-radius:12px;
-    padding:12px 14px; min-height:78px;
+    background:#0d1117;
+    border:1px solid #202936;
+    border-radius:12px;
+    padding:12px 14px;
+    min-height:78px;
 }
-.metric-label { color:#8d99a8; font-size:12px; }
-.metric-value { color:#f3f6f8; font-size:20px; font-weight:800; margin-top:4px; }
+.metric-label {color:#8d99a8;font-size:12px;}
+.metric-value {color:#f3f6f8;font-size:20px;font-weight:800;margin-top:4px;}
+
+/* TradingView */
+.tv-shell {
+    width:100%;
+    max-width:100%;
+    overflow:hidden;
+    border:1px solid #26303c;
+    border-radius:16px;
+    background:#0b0f14;
+    box-shadow:0 10px 35px rgba(0,0,0,.22);
+}
+.tv-title {
+    padding:12px 15px;
+    border-bottom:1px solid #202936;
+    color:#f3f6f8;
+    font-weight:800;
+    font-size:15px;
+}
+
+/* Mobile */
+@media (max-width: 768px) {
+    .block-container {
+        max-width:100% !important;
+        padding: .65rem .55rem 1.2rem !important;
+        overflow-x:hidden !important;
+    }
+    .mila-card {
+        border-radius:12px;
+        padding:12px;
+    }
+    .mila-title {
+        font-size:20px;
+        line-height:1.25;
+    }
+    .mila-muted {
+        font-size:11px;
+        line-height:1.5;
+    }
+    .metric-box {
+        min-height:64px;
+        padding:8px 9px;
+        border-radius:10px;
+    }
+    .metric-label {font-size:10px;}
+    .metric-value {font-size:15px;margin-top:2px;}
+    .tv-shell {
+        border-radius:10px;
+    }
+    /* prevent Streamlit columns from forcing a desktop-width layout */
+    [data-testid="stHorizontalBlock"] {
+        flex-wrap:wrap !important;
+        gap:.5rem !important;
+    }
+    [data-testid="stHorizontalBlock"] > div {
+        min-width:0 !important;
+    }
+    [data-testid="stDataFrame"],
+    [data-testid="stTable"] {
+        max-width:100% !important;
+        overflow-x:auto !important;
+    }
+    iframe {
+        max-width:100% !important;
+    }
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -597,9 +681,6 @@ else:
     })
     profile_df["بيع"] = profile_df["الحجم"] - profile_df["شراء"]
 
-    max_vol = max(profile_df["الحجم"].max(), 1)
-    profile_df["نسبي"] = profile_df["الحجم"] / max_vol
-
     left, right = st.columns([2.2, 1])
 
     with left:
@@ -627,33 +708,43 @@ else:
         )
 
     # =====================================================
-    # 12) TradingView
+    # 12) TradingView — Responsive
     # =====================================================
-    st.markdown("### 🖥️ الشارت")
+    st.markdown("### 🖥️ TradingView")
 
     tv_interval = timeframe
     tradingview_widget_html = f"""
-    <div class="tradingview-widget-container" style="height:620px;width:100%;border-radius:14px;overflow:hidden;">
-      <div id="tradingview_chart" style="height:100%;width:100%"></div>
+    <div class="tv-shell">
+      <div class="tv-title">📊 XAUUSD • TradingView</div>
+      <div id="tradingview_chart" style="height:620px;width:100%;"></div>
       <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
       <script type="text/javascript">
-      new TradingView.widget({{
-        "width":"100%",
-        "height":620,
-        "symbol":"OANDA:XAUUSD",
-        "interval":"{tv_interval}",
-        "timezone":"Etc/UTC",
-        "theme":"dark",
-        "style":"1",
-        "locale":"ar",
-        "enable_publishing":false,
-        "hide_side_toolbar":false,
-        "allow_symbol_change":true,
-        "details":true,
-        "hotlist":true,
-        "calendar":false,
-        "container_id":"tradingview_chart"
-      }});
+        (function() {{
+          function loadChart() {{
+            if (typeof TradingView === "undefined") {{
+              setTimeout(loadChart, 150);
+              return;
+            }}
+            new TradingView.widget({{
+              "autosize": true,
+              "symbol": "OANDA:XAUUSD",
+              "interval": "{tv_interval}",
+              "timezone": "Etc/UTC",
+              "theme": "dark",
+              "style": "1",
+              "locale": "ar",
+              "enable_publishing": false,
+              "hide_side_toolbar": false,
+              "allow_symbol_change": true,
+              "details": false,
+              "hotlist": false,
+              "calendar": false,
+              "studies": [],
+              "container_id": "tradingview_chart"
+            }});
+          }}
+          loadChart();
+        }})();
       </script>
     </div>
     """
