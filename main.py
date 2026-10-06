@@ -13,6 +13,11 @@ except ImportError:
     yf = None
 
 try:
+    import MetaTrader5 as mt5
+except ImportError:
+    mt5 = None
+
+try:
     from openai import OpenAI
 except ImportError:
     OpenAI = None
@@ -229,7 +234,98 @@ def fetch_market_data(period="5d", interval="5m"):
 
 
 # =========================================================
-# 5) مؤشرات مساعدة
+# 5) MetaTrader 5 — مصدر بيانات مباشر
+# =========================================================
+def mt5_initialize():
+    """تهيئة اتصال MT5. لا يتم تنفيذ أي صفقة من هذه الدالة."""
+    if mt5 is None:
+        return False, "مكتبة MetaTrader5 غير مثبتة."
+    try:
+        if mt5.initialize():
+            return True, ""
+        return False, f"تعذر الاتصال بـ MT5: {mt5.last_error()}"
+    except Exception as e:
+        return False, f"خطأ في تهيئة MT5: {e}"
+
+
+def mt5_shutdown():
+    if mt5 is not None:
+        try:
+            mt5.shutdown()
+        except Exception:
+            pass
+
+
+def mt5_symbol_info(symbol):
+    ok, error = mt5_initialize()
+    if not ok:
+        return None, error
+    try:
+        info = mt5.symbol_info(symbol)
+        if info is None:
+            return None, f"الرمز {symbol} غير موجود في MT5."
+        if not info.visible:
+            if not mt5.symbol_select(symbol, True):
+                return None, f"تعذر إظهار الرمز {symbol} في Market Watch."
+        return info, ""
+    finally:
+        # نترك اتصال MT5 متاحاً لباقي عملية الصفحة؛ Streamlit يعيد التشغيل عند التفاعل.
+        pass
+
+
+def fetch_mt5_market_data(symbol="XAUUSD", timeframe_mt5=None, bars=500):
+    """جلب OHLCV من MT5. لا يرسل أوامر تداول."""
+    if mt5 is None:
+        return pd.DataFrame(), "ثبّت مكتبة MetaTrader5 على جهاز تشغيل التطبيق."
+
+    ok, error = mt5_initialize()
+    if not ok:
+        return pd.DataFrame(), error
+
+    if timeframe_mt5 is None:
+        timeframe_mt5 = mt5.TIMEFRAME_M5
+
+    try:
+        info = mt5.symbol_info(symbol)
+        if info is None:
+            return pd.DataFrame(), (
+                f"رمز الذهب '{symbol}' غير موجود. "
+                "قد يكون اسمه XAUUSD أو GOLD أو XAUUSDm حسب شركة الوساطة."
+            )
+
+        if not info.visible and not mt5.symbol_select(symbol, True):
+            return pd.DataFrame(), f"تعذر تفعيل الرمز {symbol} في MT5."
+
+        rates = mt5.copy_rates_from_pos(symbol, timeframe_mt5, 0, bars)
+        if rates is None or len(rates) == 0:
+            return pd.DataFrame(), f"MT5 لم يُرجع بيانات للرمز {symbol}: {mt5.last_error()}"
+
+        df = pd.DataFrame(rates)
+        df["time"] = pd.to_datetime(df["time"], unit="s", utc=True)
+        df = df.rename(columns={
+            "open": "Open",
+            "high": "High",
+            "low": "Low",
+            "close": "Close",
+            "tick_volume": "Volume",
+        })
+
+        needed = ["Open", "High", "Low", "Close", "Volume"]
+        df = df[["time"] + needed].copy()
+        df = df.dropna(subset=["Open", "High", "Low", "Close"])
+        df = df.set_index("time")
+
+        # نزيل الشمعة الحالية غير المكتملة حتى تكون الإشارة مستقرة.
+        if len(df) > 2:
+            df = df.iloc[:-1].copy()
+
+        return df, ""
+    except Exception as e:
+        return pd.DataFrame(), f"خطأ في قراءة MT5: {e}"
+
+
+# =========================================================
+# 6) مؤشرات مساعدة
 # =========================================================
 def rsi(series, length=14):
     delta = series.diff()
@@ -259,7 +355,7 @@ def ema(series, length):
 
 
 # =========================================================
-# 6) Volume Profile PRO — تحويل منطق Pine إلى Python
+# 7) Volume Profile PRO — تحويل منطق Pine إلى Python
 # =========================================================
 def calc_profile(df, lb=120, rows=30, va_pct=0.70):
     if len(df) < max(lb, 20):
@@ -550,7 +646,7 @@ def analyze_mila(
 
 
 # =========================================================
-# 7) جلب وتحليل
+# 8) جلب وتحليل
 # =========================================================
 with st.sidebar:
     st.subheader("⚙️ إعدادات MILA")
@@ -568,6 +664,19 @@ with st.sidebar:
     rr = st.slider("الهدف R:R", 0.5, 4.0, 1.5, 0.1)
 
     st.markdown("---")
+    st.subheader("🟢 MetaTrader 5")
+
+    use_mt5 = st.toggle("استخدام بيانات MT5", value=True)
+    mt5_symbol = st.text_input(
+        "رمز الذهب في MT5",
+        value="XAUUSD",
+        help="قد يختلف اسم الذهب حسب الوسيط: XAUUSD أو GOLD أو XAUUSDm."
+    )
+    mt5_bars = st.slider("عدد شموع MT5", 200, 1500, 500, 50)
+
+    st.caption("الاتصال الحالي للبيانات فقط — لا يتم فتح أو إغلاق أي صفقة.")
+
+    st.markdown("---")
     st.subheader("🤖 حالة السوق")
 
     if market_status["is_open"]:
@@ -580,10 +689,27 @@ with st.sidebar:
         st.rerun()
 
 
-df, data_error = fetch_market_data(
-    period="5d" if timeframe != "1h" else "1mo",
-    interval=timeframe,
-)
+# تحويل فريم التطبيق إلى فريم MT5
+mt5_timeframes = {
+    "5m": mt5.TIMEFRAME_M5 if mt5 is not None else None,
+    "15m": mt5.TIMEFRAME_M15 if mt5 is not None else None,
+    "30m": mt5.TIMEFRAME_M30 if mt5 is not None else None,
+    "1h": mt5.TIMEFRAME_H1 if mt5 is not None else None,
+}
+
+if use_mt5:
+    df, data_error = fetch_mt5_market_data(
+        symbol=mt5_symbol.strip(),
+        timeframe_mt5=mt5_timeframes.get(timeframe),
+        bars=max(mt5_bars, lb + 220),
+    )
+    data_source_text = f"MT5 • {mt5_symbol.strip()}"
+else:
+    df, data_error = fetch_market_data(
+        period="5d" if timeframe != "1h" else "1mo",
+        interval=timeframe,
+    )
+    data_source_text = "Yahoo Finance"
 
 analysis = analyze_mila(
     df,
@@ -596,7 +722,7 @@ analysis = analyze_mila(
 
 
 # =========================================================
-# 8) الرأس
+# 9) الرأس
 # =========================================================
 st.markdown(
     '<div class="mila-card">'
@@ -612,8 +738,14 @@ if data_error:
 elif analysis is None:
     st.warning("البيانات الحالية غير كافية لحساب Volume Profile. جرّب فريم آخر أو انتظر تحميل بيانات أكثر.")
 else:
+    if use_mt5:
+        st.success(
+            f"🟢 متصل ببيانات MT5 — {mt5_symbol.strip()} — الفريم {timeframe}. "
+            "التنفيذ الآلي للصفقات غير مفعّل."
+        )
+
     # =====================================================
-    # 9) لوحة الإشارة
+    # 10) لوحة الإشارة
     # =====================================================
     direction = analysis["direction"]
     if direction == "BUY":
@@ -650,7 +782,7 @@ else:
     st.markdown("")
 
     # =====================================================
-    # 10) تفاصيل الصفقة
+    # 11) تفاصيل الصفقة
     # =====================================================
     c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("الترند العام", analysis["trend"])
@@ -666,7 +798,7 @@ else:
         p3.metric("SL", f'{analysis["sl"]:.2f}')
 
     # =====================================================
-    # 11) Volume Profile مرئي داخل التطبيق
+    # 12) Volume Profile مرئي داخل التطبيق
     # =====================================================
     st.markdown("### 📊 Volume Profile PRO")
 
@@ -708,7 +840,7 @@ else:
         )
 
     # =====================================================
-    # 12) TradingView — Responsive
+    # 13) TradingView — Responsive
     # =====================================================
     st.markdown("### 🖥️ TradingView")
 
@@ -751,7 +883,7 @@ else:
     components.html(tradingview_widget_html, height=640)
 
     # =====================================================
-    # 13) AI Advisor
+    # 14) AI Advisor
     # =====================================================
     st.markdown("### 🤖 المستشار الذكي")
 
@@ -794,7 +926,7 @@ SL: {analysis['sl']}
         st.caption("للتفعيل، ضع GROQ_API_KEY داخل Streamlit Secrets أو متغيرات البيئة.")
 
     # =====================================================
-    # 14) محادثة المستشار
+    # 15) محادثة المستشار
     # =====================================================
     st.markdown("### 💬 محادثة المستشار")
 
