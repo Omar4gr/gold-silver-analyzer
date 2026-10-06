@@ -126,6 +126,43 @@ html, body, [class*="css"] {
 )
 
 
+st.markdown("""
+<style>
+/* MILA PRO v3 — mobile-first polish */
+@media (max-width: 768px) {
+  .block-container { padding: .45rem .48rem 1.1rem !important; }
+  h1 { font-size: 1.45rem !important; }
+  h2 { font-size: 1.22rem !important; }
+  h3 { font-size: 1.08rem !important; }
+  p, label, .stCaption { line-height: 1.55 !important; }
+  div[data-testid="stHorizontalBlock"] {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0,1fr)) !important;
+    gap: .45rem !important;
+  }
+  div[data-testid="column"] {
+    width: auto !important; min-width: 0 !important; max-width: none !important;
+  }
+  div[data-testid="stMetric"] { min-height: 84px; padding: 9px !important; }
+  div[data-testid="stMetricLabel"] { font-size: .78rem !important; }
+  div[data-testid="stMetricValue"] { font-size: 1.08rem !important; }
+  .signal-buy, .signal-sell, .signal-neutral { padding: 12px !important; }
+  .signal-buy p, .signal-sell p, .signal-neutral p { font-size: .88rem !important; }
+  div[data-testid="stDataFrame"], div[data-testid="stTable"], div[data-testid="stChart"] {
+    max-width: 100% !important; overflow-x: auto !important;
+  }
+  iframe { max-width: 100% !important; }
+  button[kind="primary"], .stButton button { min-height: 44px !important; }
+}
+@media (max-width: 430px) {
+  div[data-testid="stHorizontalBlock"] { grid-template-columns: 1fr !important; }
+  div[data-testid="stMetric"] { min-height: 76px; }
+  .hero { padding: 12px !important; }
+  .hero h1 { font-size: 1.15rem !important; }
+}
+</style>
+""", unsafe_allow_html=True)
+
 # ============================================================
 # 2) AI / GROQ
 # ============================================================
@@ -707,6 +744,51 @@ def send_remote_signal(
         return False, f"تعذر إرسال الإشارة: {exc}"
 
 
+
+def fetch_mt5_live_data(base_url, token="", symbol="XAUUSD", timeframe="5m", bars=500):
+    """
+    Reads live candles/tick data from a compatible MILA Bridge endpoint:
+      GET /market-data?symbol=XAUUSD&timeframe=5m&bars=500
+    Expected JSON:
+      {"bid":..., "ask":..., "spread":..., "time":..., "bars":[
+        {"time":...,"open":...,"high":...,"low":...,"close":...,"volume":...}, ...
+      ]}
+    Returns (DataFrame, meta, error). Falls back safely when unavailable.
+    """
+    base_url = normalize_bridge_url(base_url)
+    if not base_url:
+        return pd.DataFrame(), {}, "Bridge URL غير موجود"
+    headers = {"X-Bridge-Token": token} if token else {}
+    try:
+        r = requests.get(
+            f"{base_url}/market-data",
+            params={"symbol": symbol, "timeframe": timeframe, "bars": int(bars)},
+            headers=headers,
+            timeout=10,
+        )
+        if not r.ok:
+            return pd.DataFrame(), {}, f"HTTP {r.status_code}"
+        data = r.json()
+        rows = data.get("bars", []) if isinstance(data, dict) else []
+        if not rows:
+            return pd.DataFrame(), data if isinstance(data, dict) else {}, "لا توجد شموع MT5"
+        live_df = pd.DataFrame(rows)
+        required = ["open", "high", "low", "close"]
+        if any(c not in live_df.columns for c in required):
+            return pd.DataFrame(), data, "صيغة بيانات MT5 غير مكتملة"
+        if "volume" not in live_df.columns:
+            live_df["volume"] = 0
+        for c in ["open","high","low","close","volume"]:
+            live_df[c] = pd.to_numeric(live_df[c], errors="coerce")
+        live_df = live_df.dropna(subset=["open","high","low","close"])
+        if "time" in live_df.columns:
+            live_df["time"] = pd.to_datetime(live_df["time"], errors="coerce", utc=True)
+            live_df = live_df.set_index("time")
+        return live_df[["open","high","low","close","volume"]], data, ""
+    except Exception as exc:
+        return pd.DataFrame(), {}, str(exc)
+
+
 def fetch_bridge_status(base_url, token=""):
     base_url = normalize_bridge_url(base_url)
     if not base_url:
@@ -769,6 +851,16 @@ with st.sidebar:
     max_recommended_lot = st.number_input("أقصى Lot مقترح", min_value=0.01, value=0.10, step=0.01)
 
     st.markdown("---")
+    st.subheader("📡 مصدر السعر")
+    data_source = st.radio(
+        "مصدر البيانات",
+        ["MT5 Live (مفضل)", "Yahoo Finance احتياطي"],
+        index=0,
+        help="عند توفر /market-data في Bridge سيستخدم البرنامج نفس شموع وسعر وسيط MT5."
+    )
+    live_bars = st.slider("عدد شموع MT5", 200, 1500, 600, 100)
+
+    st.markdown("---")
     st.subheader("🌐 Remote MT5")
 
     bridge_url = st.text_input(
@@ -817,8 +909,22 @@ with st.sidebar:
 # ============================================================
 # 10) LOAD + ANALYZE
 # ============================================================
+mt5_meta = {}
+data_source_label = "Yahoo Finance"
+live_error = ""
+
 with st.spinner("جاري تحميل بيانات السوق وتحليل MILA..."):
-    df = fetch_market_data(symbol, interval, period)
+    if data_source.startswith("MT5") and bridge_url:
+        df, mt5_meta, live_error = fetch_mt5_live_data(
+            bridge_url, bridge_token, remote_symbol, interval, live_bars
+        )
+        if not df.empty:
+            data_source_label = "MT5 LIVE"
+        else:
+            df = fetch_market_data(symbol, interval, period)
+            data_source_label = "Yahoo احتياطي"
+    else:
+        df = fetch_market_data(symbol, interval, period)
 
 if not df.empty:
     analysis = analyze_mila(
@@ -909,7 +1015,29 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-status_col1, status_col2, status_col3 = st.columns(3)
+if data_source_label == "MT5 LIVE":
+    bid = mt5_meta.get("bid")
+    ask = mt5_meta.get("ask")
+    spread = mt5_meta.get("spread")
+    live_bits = []
+    if bid is not None: live_bits.append(f"Bid {float(bid):.2f}")
+    if ask is not None: live_bits.append(f"Ask {float(ask):.2f}")
+    if spread is not None: live_bits.append(f"Spread {spread}")
+    st.success("🟢 LIVE MT5 — " + " | ".join(live_bits))
+elif data_source.startswith("MT5"):
+    st.warning("🟠 تعذر جلب MT5 Live؛ تم استخدام Yahoo Finance احتياطياً." + (f" ({live_error})" if live_error else ""))
+else:
+    st.info("🔵 مصدر البيانات: Yahoo Finance")
+
+
+r1, r2 = st.columns(2)
+with r1:
+    if st.button("🔄 تحديث السعر والتحليل", use_container_width=True):
+        st.rerun()
+with r2:
+    st.caption("للصفقات الحية استخدم MT5 Live وتحقق أن وقت آخر تحديث حديث.")
+
+status_col1, status_col2, status_col3, status_col4 = st.columns(4)
 
 with status_col1:
     st.metric("السوق", "مفتوح 🟢" if market_open else "مغلق 🔴")
@@ -923,6 +1051,8 @@ with status_col2:
 
 with status_col3:
     st.metric("الاتجاه", analysis["trend"])
+with status_col4:
+    st.metric("المصدر", data_source_label)
 
 
 
@@ -1235,8 +1365,7 @@ if client is None:
 else:
     if st.button("✨ اطلب تحليل AI الحالي", use_container_width=True):
         context = f"""
-السوق: {symbol}
-الفريم: {interval}
+السوق: {symbol}\nالفريم: {interval}\nمصدر البيانات: {data_source_label}\nBid MT5: {mt5_meta.get("bid", "غير متاح")}\nAsk MT5: {mt5_meta.get("ask", "غير متاح")}
 السعر: {analysis['entry']:.2f}
 الإشارة: {analysis['signal']}
 الترند: {analysis['trend']}
@@ -1328,5 +1457,5 @@ with st.expander("💬 محادثة المستشار"):
 # ============================================================
 st.markdown("---")
 st.caption(
-    "MILA PRO • التحليل تعليمي وليس ضماناً للربح • ابدأ دائماً بحساب Demo قبل التفعيل الحقيقي."
+    "MILA PRO v3 • MT5 Live عند توفر Bridge market-data • إدارة مخاطر + فلتر جودة + Backtest • لا توجد استراتيجية تضمن الربح."
 )
