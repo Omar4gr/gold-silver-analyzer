@@ -163,6 +163,44 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+st.markdown("""
+<style>
+/* Classic compact interface requested by user; PRO v3 engine remains unchanged */
+.block-container{max-width:1180px!important;padding-top:.7rem!important}
+section[data-testid="stSidebar"]{background:#252631!important;border-right:1px solid rgba(255,255,255,.06)!important}
+.hero{padding:16px 18px!important;border-radius:12px!important;margin-bottom:12px!important}
+.hero h1{font-size:25px!important}.hero p{font-size:12px!important}
+.signal-buy,.signal-sell,.signal-neutral{padding:14px 16px!important;border-radius:13px!important}
+.signal-buy h2,.signal-sell h2,.signal-neutral h2{font-size:22px!important;margin:0 0 7px!important}
+div[data-testid="stMetric"]{background:transparent!important;border:0!important;padding:3px 5px!important;min-height:auto!important}
+div[data-testid="stMetricLabel"]{font-size:11px!important}
+div[data-testid="stMetricValue"]{font-size:18px!important}
+.stButton>button{border-radius:9px!important}
+@media(max-width:768px){
+ .block-container{max-width:100%!important;padding:.42rem .48rem 1rem!important}
+ .hero{padding:12px 13px!important}.hero h1{font-size:18px!important}.hero p{font-size:10px!important}
+ div[data-testid="stHorizontalBlock"]{display:flex!important;flex-direction:row!important;flex-wrap:wrap!important;gap:.25rem!important}
+ div[data-testid="column"]{flex:1 1 30%!important;min-width:28%!important;width:auto!important;max-width:none!important}
+ div[data-testid="stMetric"]{padding:2px 3px!important}
+ div[data-testid="stMetricLabel"]{font-size:9px!important}
+ div[data-testid="stMetricValue"]{font-size:14px!important}
+ .signal-buy,.signal-sell,.signal-neutral{padding:11px 12px!important}
+ .signal-buy h2,.signal-sell h2,.signal-neutral h2{font-size:18px!important}
+ .signal-buy p,.signal-sell p,.signal-neutral p{font-size:11px!important;margin:.3rem 0!important}
+ h3{font-size:17px!important;margin-top:.75rem!important}
+ section[data-testid="stSidebar"]{width:220px!important;min-width:220px!important;max-width:82vw!important}
+ section[data-testid="stSidebar"] label,section[data-testid="stSidebar"] p{font-size:11px!important}
+ section[data-testid="stSidebar"] h2{font-size:16px!important}
+ .stButton>button{min-height:38px!important;font-size:11px!important}
+ iframe{width:100%!important;max-width:100%!important}
+}
+@media(max-width:430px){
+ .hero h1{font-size:17px!important}
+ section[data-testid="stSidebar"]{width:205px!important;min-width:205px!important}
+}
+</style>
+""", unsafe_allow_html=True)
+
 # ============================================================
 # 2) AI / GROQ
 # ============================================================
@@ -1250,7 +1288,7 @@ new TradingView.widget({{
 
 components.html(
     tradingview_widget_html,
-    height=540,
+    height=500,
     scrolling=False,
 )
 
