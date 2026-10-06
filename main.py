@@ -5,6 +5,11 @@ from typing import Optional
 
 import pandas as pd
 import streamlit as st
+
+try:
+    import requests
+except ImportError:
+    requests = None
 import streamlit.components.v1 as components
 
 try:
@@ -21,6 +26,49 @@ try:
     from openai import OpenAI
 except ImportError:
     OpenAI = None
+
+
+# =========================================================
+# Remote MT5 Bridge
+# =========================================================
+def send_remote_signal(bridge_url, bridge_token, signal_id, symbol, side, volume, entry, sl, tp, timeframe, signal_name):
+    if requests is None:
+        return False, "مكتبة requests غير مثبتة."
+    try:
+        response = requests.post(
+            bridge_url.rstrip("/") + "/signal",
+            json={
+                "signal_id": signal_id, "symbol": symbol, "side": side,
+                "volume": float(volume), "entry": float(entry),
+                "sl": float(sl), "tp": float(tp), "timeframe": timeframe,
+                "signal_name": signal_name, "source": "MILA Volume Profile PRO",
+            },
+            headers={"X-Bridge-Token": bridge_token},
+            timeout=8,
+        )
+        if response.status_code >= 400:
+            return False, f"Bridge HTTP {response.status_code}: {response.text[:300]}"
+        data = response.json()
+        return bool(data.get("accepted")), data.get("message", "تم إرسال الإشارة.")
+    except Exception as exc:
+        return False, f"تعذر الاتصال بالـ Bridge: {exc}"
+
+
+def check_remote_bridge(bridge_url, bridge_token):
+    if requests is None:
+        return False, "مكتبة requests غير مثبتة."
+    try:
+        response = requests.get(
+            bridge_url.rstrip("/") + "/health",
+            headers={"X-Bridge-Token": bridge_token},
+            timeout=5,
+        )
+        if response.status_code >= 400:
+            return False, f"HTTP {response.status_code}"
+        data = response.json()
+        return bool(data.get("ok")), data.get("message", "Bridge يعمل.")
+    except Exception as exc:
+        return False, str(exc)
 
 
 # =========================================================
@@ -666,15 +714,30 @@ with st.sidebar:
     st.markdown("---")
     st.subheader("🟢 MetaTrader 5")
 
-    use_mt5 = st.toggle("استخدام بيانات MT5", value=True)
-    mt5_symbol = st.text_input(
-        "رمز الذهب في MT5",
-        value="XAUUSD",
-        help="قد يختلف اسم الذهب حسب الوسيط: XAUUSD أو GOLD أو XAUUSDm."
-    )
+    use_mt5 = st.toggle("استخدام بيانات MT5 المحلي", value=True)
+    mt5_symbol = st.text_input("رمز الذهب في MT5", value="XAUUSD",
+        help="قد يختلف اسم الذهب حسب الوسيط: XAUUSD أو GOLD أو XAUUSDm.")
     mt5_bars = st.slider("عدد شموع MT5", 200, 1500, 500, 50)
 
-    st.caption("الاتصال الحالي للبيانات فقط — لا يتم فتح أو إغلاق أي صفقة.")
+    st.markdown("### 🌐 MT5 على VPS")
+    bridge_url = st.text_input("Bridge API URL", value=os.getenv("MILA_BRIDGE_URL", ""),
+        placeholder="https://your-vps-domain.com")
+    bridge_token = st.text_input("Bridge Token", value=os.getenv("MILA_BRIDGE_TOKEN", ""), type="password")
+    remote_symbol = st.text_input("رمز التنفيذ على VPS", value=mt5_symbol)
+    remote_volume = st.number_input("حجم الصفقة (Lot)", min_value=0.01, max_value=10.0, value=0.01, step=0.01)
+    enable_remote = st.toggle("تفعيل إرسال الإشارات للـ VPS", value=False)
+    auto_remote = st.toggle("إرسال تلقائي عند ظهور إشارة", value=False)
+    live_confirm = st.checkbox("أسمح بالتنفيذ الحقيقي", value=False,
+        help="يجب أيضًا تفعيل LIVE_TRADING في Bridge وInpAllowLiveTrading في EA.")
+
+    if bridge_url and bridge_token and st.button("🔌 فحص اتصال Bridge", use_container_width=True):
+        ok_bridge, bridge_msg = check_remote_bridge(bridge_url, bridge_token)
+        if ok_bridge:
+            st.success("🟢 Bridge متصل: " + bridge_msg)
+        else:
+            st.error("🔴 فشل الاتصال: " + bridge_msg)
+
+    st.caption("التنفيذ الحقيقي محمي بثلاث طبقات. ابدأ بـ Demo/Dry Run.")
 
     st.markdown("---")
     st.subheader("🤖 حالة السوق")
@@ -734,7 +797,7 @@ st.markdown(
 
 if data_error:
     st.error(data_error)
-    st.info("ثبّت المتطلبات: `pip install yfinance pandas openai streamlit`")
+    st.info("ثبّت المتطلبات: `pip install yfinance pandas openai streamlit requests`")
 elif analysis is None:
     st.warning("البيانات الحالية غير كافية لحساب Volume Profile. جرّب فريم آخر أو انتظر تحميل بيانات أكثر.")
 else:
@@ -743,6 +806,28 @@ else:
             f"🟢 متصل ببيانات MT5 — {mt5_symbol.strip()} — الفريم {timeframe}. "
             "التنفيذ الآلي للصفقات غير مفعّل."
         )
+
+    # =====================================================
+    # Remote MT5 signal dispatch
+    # =====================================================
+    if enable_remote and live_confirm and bridge_url and bridge_token:
+        remote_direction = analysis["direction"]
+        if remote_direction in ("BUY", "SELL") and analysis["entry"] and analysis["sl"] and analysis["tp"]:
+            signal_id = f"{remote_symbol.strip()}|{timeframe}|{analysis['df'].index[-1]}|{remote_direction}"
+            send_now = auto_remote or st.button(
+                f"🚀 إرسال {remote_direction} إلى MT5 على VPS",
+                use_container_width=True, type="primary")
+            if send_now:
+                ok_send, send_msg = send_remote_signal(
+                    bridge_url, bridge_token, signal_id, remote_symbol.strip(),
+                    remote_direction, remote_volume, analysis["entry"],
+                    analysis["sl"], analysis["tp"], timeframe, analysis["signal_name"])
+                if ok_send:
+                    st.success("✅ " + send_msg)
+                else:
+                    st.error("❌ " + send_msg)
+        else:
+            st.info("لا توجد إشارة BUY/SELL مؤكدة حاليًا لإرسالها إلى VPS.")
 
     # =====================================================
     # 10) لوحة الإشارة
